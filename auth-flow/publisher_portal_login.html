@@ -1,0 +1,1355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WSO2 APIM Publisher — OAuth2 Login Flow</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;600;700;800&display=swap');
+
+  :root {
+    --bg: #0b0e14;
+    --panel: #111520;
+    --border: #1e2535;
+    --accent-blue: #3b82f6;
+    --accent-cyan: #06b6d4;
+    --accent-green: #10b981;
+    --accent-amber: #f59e0b;
+    --accent-purple: #8b5cf6;
+    --accent-red: #ef4444;
+    --text: #e2e8f0;
+    --muted: #64748b;
+    --dim: #334155;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* background grid */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(59,130,246,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(59,130,246,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .page { position: relative; z-index: 1; padding: 32px 24px 80px; max-width: 1400px; margin: 0 auto; }
+
+  header { margin-bottom: 40px; }
+  header h1 {
+    font-size: clamp(1.4rem, 3vw, 2rem);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    background: linear-gradient(135deg, #3b82f6, #06b6d4);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  header p { color: var(--muted); font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; margin-top: 6px; }
+
+  /* legend */
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 12px;
+    margin-bottom: 36px;
+  }
+  .legend-item {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 12px;
+    font-size: 0.75rem; font-family: 'JetBrains Mono', monospace;
+  }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+  /* ACTORS row */
+  .actors {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 32px;
+  }
+  .actor {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-top: 3px solid;
+    border-radius: 10px;
+    padding: 14px 16px;
+    text-align: center;
+  }
+  .actor .icon { font-size: 1.6rem; margin-bottom: 6px; }
+  .actor .label { font-weight: 700; font-size: 0.85rem; }
+  .actor .sublabel { color: var(--muted); font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; margin-top: 2px; }
+
+  /* FLOW steps */
+  .flow { display: flex; flex-direction: column; gap: 0; }
+
+  .step {
+    display: grid;
+    grid-template-columns: 36px 1fr;
+    gap: 0 16px;
+    position: relative;
+    cursor: pointer;
+  }
+
+  /* vertical connector line */
+  .step:not(:last-child) .num::after {
+    content: '';
+    position: absolute;
+    left: 17px;
+    top: 44px;
+    bottom: 0;
+    width: 2px;
+    background: var(--border);
+    z-index: 0;
+  }
+
+  .num {
+    position: relative;
+    display: flex; flex-direction: column; align-items: center;
+    padding-top: 12px;
+  }
+
+  .num-circle {
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700; font-size: 0.78rem;
+    border: 2px solid;
+    position: relative; z-index: 1;
+    flex-shrink: 0;
+    transition: transform 0.15s;
+  }
+
+  .step:hover .num-circle { transform: scale(1.1); }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-left: 3px solid;
+    border-radius: 10px;
+    margin-bottom: 6px;
+    margin-top: 6px;
+    overflow: hidden;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .step:hover .card { box-shadow: 0 4px 24px rgba(0,0,0,0.4); }
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+  }
+
+  .method-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    letter-spacing: 0.05em;
+  }
+
+  .status-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 4px;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+
+  .url {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--text);
+    word-break: break-all;
+    flex: 1;
+  }
+  .url .host { color: var(--muted); }
+
+  .card-body {
+    padding: 0 16px 14px;
+    display: none;
+  }
+  .step.open .card-body { display: block; }
+
+  .card-body .detail-row {
+    margin-top: 10px;
+  }
+  .detail-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .detail-content {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--accent-cyan);
+    background: rgba(6,182,212,0.05);
+    border: 1px solid rgba(6,182,212,0.15);
+    border-radius: 6px;
+    padding: 8px 10px;
+    line-height: 1.6;
+    word-break: break-all;
+  }
+
+  .internal-calls {
+    margin-top: 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .internal-calls-header {
+    background: rgba(139,92,246,0.08);
+    border-bottom: 1px solid var(--border);
+    padding: 6px 12px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent-purple);
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .internal-call {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    line-height: 1.5;
+  }
+  .internal-call:last-child { border-bottom: none; }
+  .internal-call .ic-arrow { color: var(--accent-purple); flex-shrink: 0; }
+  .internal-call .ic-desc { color: var(--text); }
+  .internal-call .ic-url { color: var(--muted); display: block; font-size: 0.67rem; }
+
+  .cookies-grid {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-top: 6px;
+  }
+  .cookie-chip {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    padding: 3px 8px;
+    border-radius: 4px;
+    border: 1px solid;
+    white-space: nowrap;
+  }
+
+  .phase-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-family: 'JetBrains Mono', monospace;
+    padding: 16px 0 6px 52px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .phase-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* color utilities */
+  .c-blue   { color: var(--accent-blue); border-color: var(--accent-blue); }
+  .c-cyan   { color: var(--accent-cyan); border-color: var(--accent-cyan); }
+  .c-green  { color: var(--accent-green); border-color: var(--accent-green); }
+  .c-amber  { color: var(--accent-amber); border-color: var(--accent-amber); }
+  .c-purple { color: var(--accent-purple); border-color: var(--accent-purple); }
+  .c-red    { color: var(--accent-red); border-color: var(--accent-red); }
+
+  .bg-blue   { background: rgba(59,130,246,0.12); }
+  .bg-cyan   { background: rgba(6,182,212,0.12); }
+  .bg-green  { background: rgba(16,185,129,0.12); }
+  .bg-amber  { background: rgba(245,158,11,0.12); }
+  .bg-purple { background: rgba(139,92,246,0.12); }
+
+  .card.c-blue  { border-left-color: var(--accent-blue); }
+  .card.c-cyan  { border-left-color: var(--accent-cyan); }
+  .card.c-green { border-left-color: var(--accent-green); }
+  .card.c-amber { border-left-color: var(--accent-amber); }
+  .card.c-purple{ border-left-color: var(--accent-purple); }
+
+  .tag-302 { background: rgba(245,158,11,0.15); color: var(--accent-amber); border-color: rgba(245,158,11,0.3); }
+  .tag-200 { background: rgba(16,185,129,0.15); color: var(--accent-green); border-color: rgba(16,185,129,0.3); }
+
+  .expand-hint {
+    color: var(--muted);
+    font-size: 0.62rem;
+    font-family: 'JetBrains Mono', monospace;
+    margin-left: auto;
+    padding-left: 8px;
+    flex-shrink: 0;
+  }
+  .step.open .expand-hint::before { content: '▲ collapse'; }
+  .step:not(.open) .expand-hint::before { content: '▼ expand'; }
+
+  /* Cookie panel */
+  .cookie-panel {
+    margin-top: 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .cookie-panel-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .cookie-panel-header.sent  { background: rgba(245,158,11,0.07); color: var(--accent-amber); }
+  .cookie-panel-header.set   { background: rgba(16,185,129,0.07); color: var(--accent-green); }
+  .cookie-panel-header.note  { background: rgba(100,116,139,0.07); color: var(--muted); }
+  .cookie-row {
+    display: grid;
+    grid-template-columns: 220px 1fr auto;
+    gap: 0 12px;
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--border);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    align-items: start;
+    line-height: 1.5;
+  }
+  .cookie-row:last-child { border-bottom: none; }
+  .cookie-row:hover { background: rgba(255,255,255,0.02); }
+  .cookie-name {
+    color: var(--text);
+    font-weight: 600;
+    word-break: break-all;
+  }
+  .cookie-name.httponly { color: var(--accent-green); }
+  .cookie-name.jsread   { color: var(--accent-blue); }
+  .cookie-name.is-set   { color: var(--accent-cyan); }
+  .cookie-desc { color: var(--muted); font-size: 0.65rem; }
+  .cookie-flags {
+    display: flex; flex-wrap: wrap; gap: 3px; justify-content: flex-end;
+  }
+  .flag {
+    font-size: 0.58rem; padding: 1px 5px; border-radius: 3px;
+    border: 1px solid; white-space: nowrap; font-weight: 600; letter-spacing: 0.04em;
+  }
+  .flag-ho  { color: var(--accent-green);  border-color: rgba(16,185,129,0.4);  background: rgba(16,185,129,0.08); }
+  .flag-sec { color: var(--accent-blue);   border-color: rgba(59,130,246,0.4);  background: rgba(59,130,246,0.08); }
+  .flag-ses { color: var(--accent-amber);  border-color: rgba(245,158,11,0.4);  background: rgba(245,158,11,0.08); }
+  .flag-exp { color: var(--muted);         border-color: rgba(100,116,139,0.4); background: rgba(100,116,139,0.08); }
+  .flag-path{ color: var(--accent-purple); border-color: rgba(139,92,246,0.4);  background: rgba(139,92,246,0.08); }
+  .flag-new { color: #f472b6;              border-color: rgba(244,114,182,0.4); background: rgba(244,114,182,0.08); }
+  .cookie-note {
+    padding: 7px 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.67rem;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <h1>WSO2 APIM Publisher — OAuth2 Authorization Code Login Flow</h1>
+    <p>Source: logintrace.har + idp.jsp + login_callback.jsp + introspect.jsp + settings.jsp · click any step to expand</p>
+  </header>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:var(--accent-blue)"></div>Browser → APIM Publisher</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--accent-amber)"></div>APIM Publisher (idp.jsp) internal calls</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--accent-cyan)"></div>Browser → IS (Embedded in APIM)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--accent-green)"></div>Token exchange + cookie set</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--accent-purple)"></div>Post-login / introspection</div>
+    <div style="width:1px;background:var(--border);margin:0 4px"></div>
+    <div class="legend-item"><span class="flag flag-ho">HttpOnly</span> not readable by JS — XSS safe</div>
+    <div class="legend-item"><span class="flag flag-sec">Secure</span> HTTPS only</div>
+    <div class="legend-item"><span class="flag flag-ses">session</span> cleared on browser close</div>
+    <div class="legend-item"><span class="flag flag-new">NEW</span> first time set this request</div>
+    <div class="legend-item"><span style="font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:var(--accent-green);font-weight:600">green name</span> = HttpOnly cookie</div>
+    <div class="legend-item"><span style="font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:var(--accent-blue);font-weight:600">blue name</span> = JS-readable cookie</div>
+    <div class="legend-item"><span style="font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:var(--accent-cyan);font-weight:600">cyan name</span> = IS-managed cookie</div>
+  </div>
+
+  <!-- Actors -->
+  <div class="actors">
+    <div class="actor" style="border-top-color:var(--accent-blue)">
+      <div class="icon">🌐</div>
+      <div class="label">Browser</div>
+      <div class="sublabel">User Agent</div>
+    </div>
+    <div class="actor" style="border-top-color:var(--accent-amber)">
+      <div class="icon">⚙️</div>
+      <div class="label">APIM Publisher</div>
+      <div class="sublabel">idp.jsp / login_callback.jsp<br>introspect.jsp / settings.jsp</div>
+    </div>
+    <div class="actor" style="border-top-color:var(--accent-cyan)">
+      <div class="icon">🔐</div>
+      <div class="label">IS (Embedded in APIM)</div>
+      <div class="sublabel">/oauth2/authorize<br>/commonauth · /oauth2/token</div>
+    </div>
+    <div class="actor" style="border-top-color:var(--accent-green)">
+      <div class="icon">🗄️</div>
+      <div class="label">Internal APIs</div>
+      <div class="sublabel">/api/am/publisher/v4<br>/client-registration · /oidc</div>
+    </div>
+  </div>
+
+  <!-- ===== FLOW ===== -->
+  <div class="flow">
+
+    <!-- Phase 1 -->
+    <div class="phase-label" style="color:var(--accent-blue)">Phase 1 · Initial Page Load</div>
+
+    <div class="step" onclick="toggle(this)">
+      <div class="num"><div class="num-circle c-blue bg-blue">1</div></div>
+      <div class="card c-blue">
+        <div class="card-header">
+          <span class="method-badge bg-blue c-blue">GET</span>
+          <span class="url"><span class="host">https://localhost:9443</span>/publisher/</span>
+          <span class="status-badge tag-200">200 OK</span>
+          <span class="expand-hint"></span>
+        </div>
+        <div class="card-body">
+          <div class="detail-row">
+            <div class="detail-label">What happens</div>
+            <div class="detail-content">Browser requests the Publisher SPA shell (index.html). The app loads CSS, fonts, and JS bundles including the main entry-point bundle.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step" onclick="toggle(this)">
+      <div class="num"><div class="num-circle c-blue bg-blue">2</div></div>
+      <div class="card c-blue">
+        <div class="card-header">
+          <span class="method-badge bg-blue c-blue">GET</span>
+          <span class="url"><span class="host">https://localhost:9443</span>/publisher/services/settings/settings.js</span>
+          <span class="status-badge tag-200">200 OK</span>
+          <span class="expand-hint"></span>
+        </div>
+        <div class="card-body">
+          <div class="detail-row">
+            <div class="detail-label">Handled by</div>
+            <div class="detail-content">settings.jsp — reads settings.json, injects IDP origin + checkSessionEndpoint, writes <strong>const AppConfig = {...}</strong> as JS</div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">Key output (AppConfig.idp)</div>
+            <div class="detail-content">origin: https://localhost:9443<br>checkSessionEndpoint: https://localhost:9443/oidc/checksession</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phase 2 -->
+    <div class="phase-label" style="color:var(--accent-amber)">Phase 2 · Login Initiation (idp.jsp)</div>
+
+    <div class="step" onclick="toggle(this)">
+      <div class="num"><div class="num-circle c-amber bg-amber">3</div></div>
+      <div class="card c-amber">
+        <div class="card-header">
+          <span class="method-badge bg-amber c-amber">GET</span>
+          <span class="url"><span class="host">https://localhost:9443</span>/publisher/services/auth/login</span>
+          <span class="status-badge tag-302">302 Redirect</span>
+          <span class="expand-hint"></span>
+        </div>
+        <div class="card-body">
+          <div class="detail-row">
+            <div class="detail-label">Handled by</div>
+            <div class="detail-content">idp.jsp — the main login orchestrator</div>
+          </div>
+          <div class="internal-calls">
+            <div class="internal-calls-header">⬡ Server-side internal HTTP calls (all loopback)</div>
+            <div class="internal-call">
+              <span class="ic-arrow">→</span>
+              <div>
+                <span class="ic-desc">GET /api/am/publisher/v4/settings</span>
+                <span class="ic-url">Fetches publisher scopes list (apim:admin apim:api_create … openid)</span>
+              </div>
+            </div>
+            <div class="internal-call">
+              <span class="ic-arrow">→</span>
+              <div>
+                <span class="ic-desc">GET /api/am/service-catalog/v1/settings</span>
+                <span class="ic-url">Fetches service catalog scopes (service_catalog:service_view service_catalog:service_write)</span>
+              </div>
+            </div>
+            <div class="internal-call">
+              <span class="ic-arrow">→</span>
+              <div>
+                <span class="ic-desc">DB lookup — SystemApplicationDAO.getClientCredentialsForApplication("apim_publisher", "carbon.super")</span>
+                <span class="ic-url">Checks if OAuth app already registered. If NOT found → triggers DCR</span>
+              </div>
+            </div>
+            <div class="internal-call">
+              <span class="ic-arrow">→ [if no record]</span>
+              <div>
+                <span class="ic-desc">POST /client-registration/v0.17/register</span>
+                <span class="ic-url">Body: {callbackUrl, clientName:"apim_publisher", grantType:"authorization_code refresh_token", saasApp:true}<br>Returns clientId + clientSecret → stored in SystemApplication DB</span>
+              </div>
+            </div>
+            <div class="internal-call">
+              <span class="ic-arrow">→</span>
+              <div>
+                <span class="ic-desc">PKCE check — systemApplicationDAO.isPKCEEnabled(clientId)</span>
+                <span class="ic-url">If enabled: generates code_verifier, stores in session, computes code_challenge (S256)</span>
+              </div>
+            </div>
+            <div class="internal-call">
+              <span class="ic-arrow">→</span>
+              <div>
+                <span class="ic-desc">Sets CLIENT_ID cookie (secure, session-scoped)</span>
+                <span class="ic-url">Cookie name: CLIENT_ID, path: /publisher/, maxAge: -1 (session)</span>
+              </div>
+            </div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">Redirect target (from HAR)</div>
+            <div class="detail-content">https://localhost:9443/oauth2/authorize<br>?response_type=code<br>&client_id=ddWhQh14VfY4TYiVe7xfsjFnS0sa<br>&scope=apim:admin apim:api_create … openid service_catalog:service_view service_catalog:service_write<br>&state=%2F<br>&redirect_uri=https://localhost:9443/publisher/services/auth/callback/login</div>
+          </div>
+          <!-- COOKIES -->
+          <div class="cookie-panel">
+            <div class="cookie-panel-header sent">► cookies sent with request</div>
+            <div class="cookie-note">None — browser cookie jar is empty at this point (first unauthenticated request)</div>
+          </div>
+          <div class="cookie-panel">
+            <div class="cookie-panel-header set">◄ cookies set by response</div>
+            <div class="cookie-row">
+              <div class="cookie-name jsread">CLIENT_ID <span class="flag flag-new">NEW</span></div>
+              <div class="cookie-desc">clientId of the registered apim_publisher OAuth app (ddWhQh14…)<br>Set by idp.jsp: response.addCookie(cookie) — used by login_callback.jsp to look up client credentials</div>
+              <div class="cookie-flags"><span class="flag flag-sec">Secure</span><span class="flag flag-ses">session</span><span class="flag flag-path">path:/publisher/</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phase 3 -->
+    <div class="phase-label" style="color:var(--accent-cyan)">Phase 3 · IS Authorization Endpoint (Embedded in APIM) (OAuth2AuthzEndpoint.java)</div>
+
+    <!-- IS state machine note -->
+    <div style="margin: 0 0 8px 52px; background: rgba(6,182,212,0.06); border: 1px solid rgba(6,182,212,0.2); border-left: 3px solid var(--accent-cyan); border-radius: 8px; padding: 10px 14px;">
+      <div style="font-family:'JetBrains Mono',monospace; font-size:0.68rem; color:var(--accent-cyan); font-weight:700; letter-spacing:0.08em; margin-bottom:6px;">⬡ SAME METHOD · THREE STATES — authorize() is called TWICE by the browser</div>
+      <div style="font-family:'JetBrains Mono',monospace; font-size:0.7rem; line-height:1.8; color:var(--muted)">
+        <span style="color:var(--text)">INITIAL_REQUEST</span> — no sessionDataKey → Step 4 (validate client, park OAuth2 params in cache, redirect to login)<br>
+        <span style="color:var(--text)">AUTHENTICATION_RESPONSE</span> — sessionDataKey present + AuthnResult in cache → Step 7 (resume, validate scopes, issue code)<br>
+        <span style="color:var(--text)">USER_CONSENT_RESPONSE</span> — sessionDataKeyConsent present → <span style="color:var(--accent-green)">skipped in this flow</span> (saasApp=true)
+      </div>
+    </div>
+
+    <div class="step" onclick="toggle(this)">
+      <div class="num"><div class="num-circle c-cyan bg-cyan">4</div></div>
+      <div class="card c-cyan">
+        <div class="card-header">
+          <span class="method-badge bg-cyan c-cyan">GET</span>
+          <span class="url"><span class="host">https://localhost:9443</span>/oauth2/authorize?response_type=code&client_id=ddWhQh14…&scope=…&state=%2F&redirect_uri=… <span style="color:var(--muted);font-size:0.65rem">[Hit 1 — INITIAL_REQUEST]</span></span>
+          <span class="status-badge tag-302">302 Redirect</span>
+          <span class="expand-hint"></span>
+        </div>
+        <div class="card-body">
+          <div class="detail-row">
+            <div class="detail-label">Class · OAuth2AuthzEndpoint.java — Hit 1 (no sessionDataKey)</div>
+            <div class="detail-content" style="color:var(--text)">JAX-RS: <span style="color:var(--accent-cyan)">@Path("/authorize") @GET</span><br>Pre-method interceptors fire first: <span style="color:var(--accent-amber)">OAuthClientAuthenticatorProxy</span> (passthrough — no client credentials on browser GET) → <span style="color:var(--accent-amber)">ClientAttestationProxy</span> (passthrough)</div>
+          </div>
+          <div class="internal-calls">
+            <div class="internal-calls-header">⬡ Internal execution inside OAuth2AuthzEndpoint.authorize()</div>
+            <div class="internal-call">
+              <span class="ic-arrow">1</span>
+              <div>
+                <span class="ic-desc">buildOAuthMessage() → state = <span style="color:var(--accent-cyan)">INITIAL_REQUEST</span></span>
+                <span class="ic-url">No sessionDataKey param → no AuthnResult in cache → this is a fresh request</span>
+              </div>
+            </div>
+            <div class="internal-call">
+              <span class="ic-arrow">2</span>
+              <div>
+                <span class="ic-desc">validateClientInfo() — DB: <span style="color:var(--accent-amber)">IDN_OAUTH_CONSUMER_APPS</span></span>
+                <span class="ic-url">SELECT by CONSUMER_KEY='ddWhQh14…' → returns OAuthAppDO {callbackURL regexp, state=ACTIVE, pkceMandatory, saasApp=true}<br>Also fetches SP record from <span style="color:var(--accent-amber)">SP_APP + SP_INBOUND_AUTH</span></span>
+              </div>
+            </div>
+            <div class="internal-call">
+              <span class="ic-arrow">3</span>
+              <div>
+                <span class="ic-desc">populateOauthParameters() → builds OAuth2Parameters</span>
+                <span class="ic-url">{clientId, redirectURI, responseType=code, scopes[], state="/", appName="apim_publisher", tenantDomain="carbon.super"}<br>Validates redirect_uri matches registered regexp — passes</span>
+              </div>
+            </div>
+            <div class="internal-call">
+              <span class="ic-arrow">4</span>
+              <div>
+                <span class="ic-desc">PKCE check: isPKCEEnabled? No code_challenge in request → pkceParams=""</span>
+                <span class="ic-url">Prompt param analysis: forceAuth=false, passiveAuth=false, no prompt override</span>
+              </div>
+            </div>
+            <div class="internal-call">
+              <span class="ic-arrow">5</span>
+              <div>
+                <span class="ic-desc">sessionDataKey = <span style="color:var(--accent-green)">UUID.randomUUID()</span> → <span style="color:var(--accent-green)">8e511c2f-28db-4108-a8b7-d042c0eaa8a9</span></span>
+                <span class="ic-url">Single-use correlation key — ties this OAuth2 request to the authentication session</span>
+              </div>
+            </div>
+            <div class="internal-call">
+              <span class="ic-arrow">6</span>
+              <div>
+                <span class="ic-desc">SessionDataCache.addToCache(sessionDataKey → SessionDataCacheEntry) <span style="color:var(--accent-amber)">[Hazelcast]</span></span>
+                <span class="ic-url">Stores: OAuth2Parameters, original queryString, paramMap, validityPeriod<br>This allows the endpoint to restore the full OAuth context when the browser returns after login</span>
+              </div>
+            </div>
+            <div class="internal-call">
+              <span class="ic-arrow">7</span>
+              <div>
+                <span class="ic-desc">handleAuthFlowThroughFramework() → CommonAuthenticationHandler.doGet()</span>
+                <span class="ic-url">DefaultRequestCoordinator.handle(): creates AuthenticationContext{clientId, scopes, relyingParty="apim_publisher", tenantDomain="carbon.super", isSaaSApp=true}<br>Checks commonAuthId cookie → no valid SSO session → selects authenticator sequence: <span style="color:var(--accent-cyan)">BasicAuthenticator:LOCAL</span></span>
+              </div>
+            </div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">Redirect target</div>
+            <div class="detail-content">https://localhost:9443/authenticationendpoint/login.do<br>?client_id=ddWhQh14…&commonAuthCallerPath=/oauth2/authorize<br>&sessionDataKey=8e511c2f-28db-4108-a8b7-d042c0eaa8a9<br>&sp=apim_publisher&isSaaSApp=true<br>&authenticators=BasicAuthenticator:LOCAL</div>
+          </div>
+          <!-- COOKIES -->
+          <div class="cookie-panel">
+            <div class="cookie-panel-header sent">► cookies sent with request</div>
+            <div class="cookie-row">
+              <div class="cookie-name jsread">CLIENT_ID</div>
+              <div class="cookie-desc">Set in step 3 — browser forwards it automatically (same origin, path matches)</div>
+              <div class="cookie-flags"><span class="flag flag-sec">Secure</span><span class="flag flag-ses">session</span></div>
+            </div>
+          </div>
+          <div class="cookie-panel">
+            <div class="cookie-panel-header note">◄ cookies set by response</div>
+            <div class="cookie-note">None set on the browser by this 302. IS stores OAuth2Parameters in <strong>Hazelcast SessionDataCache</strong> (server-side only, keyed by sessionDataKey — not a cookie).</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step" onclick="toggle(this)">
+      <div class="num"><div class="num-circle c-cyan bg-cyan">5</div></div>
+      <div class="card c-cyan">
+        <div class="card-header">
+          <span class="method-badge bg-cyan c-cyan">GET</span>
+          <span class="url"><span class="host">https://localhost:9443</span>/authenticationendpoint/login.do?…&sessionDataKey=8e511c2f…</span>
+          <span class="status-badge tag-200">200 OK</span>
+          <span class="expand-hint"></span>
+        </div>
+        <div class="card-body">
+          <div class="detail-row">
+            <div class="detail-label">What happens</div>
+            <div class="detail-content">Embedded IS renders the login form (BasicAuthenticator). Browser loads theme CSS, jQuery, Semantic UI JS. Two AJAX calls are made to /logincontext to check for existing sessions.</div>
+          </div>
+          <div class="internal-calls">
+            <div class="internal-calls-header">⬡ Browser AJAX calls during login page load</div>
+            <div class="internal-call">
+              <span class="ic-arrow">→</span>
+              <div>
+                <span class="ic-desc">GET /logincontext?sessionDataKey=8e511c2f…&application=apim_publisher&tenantDomain=carbon.super</span>
+                <span class="ic-url">Called twice (200 OK both times) — polls for SSO session state</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step" onclick="toggle(this)">
+      <div class="num"><div class="num-circle c-cyan bg-cyan">6</div></div>
+      <div class="card c-cyan">
+        <div class="card-header">
+          <span class="method-badge bg-cyan c-cyan">POST</span>
+          <span class="url"><span class="host">https://localhost:9443</span>/commonauth</span>
+          <span class="status-badge tag-302">302 Redirect</span>
+          <span class="expand-hint"></span>
+        </div>
+        <div class="card-body">
+          <div class="detail-row">
+            <div class="detail-label">User action</div>
+            <div class="detail-content">User submits username + password in the login form</div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">Request body (form-encoded)</div>
+            <div class="detail-content">username=admin&password=***&sessionDataKey=8e511c2f-28db-4108-a8b7-d042c0eaa8a9&tocommonauth=true</div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">Embedded IS — internal processing</div>
+            <div class="detail-content">BasicAuthenticator validates credentials against user store → creates new authenticated session → generates new sessionDataKey (e8055d93…) → redirects back to /oauth2/authorize</div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">Redirect target</div>
+            <div class="detail-content">https://localhost:9443/oauth2/authorize?sessionDataKey=e8055d93-6442-4035-b239-3b802e9368bb</div>
+          </div>
+          <!-- COOKIES -->
+          <div class="cookie-panel">
+            <div class="cookie-panel-header sent">► cookies sent with request</div>
+            <div class="cookie-note">None relevant — sessionDataKey is a form body param, not a cookie. Browser cookie jar still only holds CLIENT_ID from step 3.</div>
+          </div>
+          <div class="cookie-panel">
+            <div class="cookie-panel-header set">◄ cookies set by response</div>
+            <div class="cookie-row">
+              <div class="cookie-name is-set">commonAuthId <span class="flag flag-new">NEW</span></div>
+              <div class="cookie-desc">Embedded IS — SSO session cookie — set by DefaultResponseHandler after successful authentication<br>Value = opaque session ID. SHA256(commonAuthId) = sessionContextKey stored in IDN_AUTH_SESSION_STORE<br>This is what enables SSO: if user opens another app, the embedded IS sees this cookie and skips re-authentication</div>
+              <div class="cookie-flags"><span class="flag flag-ho">HttpOnly</span><span class="flag flag-sec">Secure</span><span class="flag flag-path">path:/</span><span class="flag flag-exp">expires: session</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step" onclick="toggle(this)">
+      <div class="num"><div class="num-circle c-cyan bg-cyan">7</div></div>
+      <div class="card c-cyan">
+        <div class="card-header">
+          <span class="method-badge bg-cyan c-cyan">GET</span>
+          <span class="url"><span class="host">https://localhost:9443</span>/oauth2/authorize?sessionDataKey=e8055d93… <span style="color:var(--muted);font-size:0.65rem">[Hit 2 — AUTHENTICATION_RESPONSE]</span></span>
+          <span class="status-badge tag-302">302 Redirect</span>
+          <span class="expand-hint"></span>
+        </div>
+        <div class="card-body">
+          <div class="detail-row">
+            <div class="detail-label">Class · OAuth2AuthzEndpoint.java — Hit 2 (post-authentication resume)</div>
+            <div class="detail-content" style="color:var(--text)">Same <span style="color:var(--accent-cyan)">authorize()</span> method — completely different branch. sessionDataKey present + AuthnResult waiting in cache = <span style="color:var(--accent-cyan)">AUTHENTICATION_RESPONSE</span> state</div>
+          </div>
+          <div class="internal-calls">
+            <div class="internal-calls-header">⬡ Internal execution — AUTHENTICATION_RESPONSE branch</div>
+            <div class="internal-call">
+              <span class="ic-arrow">1</span>
+              <div>
+                <span class="ic-desc">buildOAuthMessage() → state = <span style="color:var(--accent-cyan)">AUTHENTICATION_RESPONSE</span></span>
+                <span class="ic-url">sessionDataKey=e8055d93… present in params AND AuthenticationResult found in AuthnResultCache → resume mode</span>
+              </div>
+            </div>
+            <div class="internal-call">
+              <span class="ic-arrow">2</span>
+              <div>
+                <span class="ic-desc">SessionDataCache.getFromCache(e8055d93…) → restore OAuth2Parameters</span>
+                <span class="ic-url">Retrieves the original {clientId, scopes, redirectURI, state, tenantDomain} saved in step 4 above<br>updateAuthTimeInSessionDataCacheEntry(): SHA256(commonAuthId) → SessionContext → extract authTime + AMR values</span>
+              </div>
+            </div>
+            <div class="internal-call">
+              <span class="ic-arrow">3</span>
+              <div>
+                <span class="ic-desc">AuthnResultCache.getResult(e8055d93…) → AuthenticationResult — then <span style="color:var(--accent-red)">remove</span> (single-use)</span>
+                <span class="ic-url">{authenticated=true, subject=AuthenticatedUser{<a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="82e3e6efebecc2e1e3f0e0edecacf1f7f2e7f0">[email&#160;protected]</a>}, userAttributes, authenticatedIdPs=[BasicAuthenticator], sessionId}</span>
+              </div>
+            </div>
+            <div class="internal-call">
+              <span class="ic-arrow">4</span>
+              <div>
+                <span class="ic-desc">Consent decision: <span style="color:var(--accent-green)">SKIPPED</span> — SP saasApp=true + SP-level skipConsent</span>
+                <span class="ic-url">Checks: IDN_OPENID_USER_RPS (prior approval) + SP_APP.IS_CONSENT_SKIPPED → skip consent page<br>→ handleUserConsent(APPROVE) called directly — no redirect to /oauth2_consent.do</span>
+              </div>
+            </div>
+            <div class="internal-call">
+              <span class="ic-arrow">5</span>
+              <div>
+                <span class="ic-desc">AuthorizationHandlerManager.handleAuthorization() — scope validation</span>
+                <span class="ic-url">DB: <span style="color:var(--accent-amber)">IDN_OAUTH2_SCOPE</span> — validates all requested scope keys exist<br>DB: <span style="color:var(--accent-amber)">IDN_OAUTH2_SCOPE_BINDING</span> — checks user role has permission for each scope<br>→ OAuthAuthzReqMessageContext{approvedScopes[all], AuthenticatedUser, authTime} stored in thread-local</span>
+              </div>
+            </div>
+            <div class="internal-call">
+              <span class="ic-arrow">6</span>
+              <div>
+                <span class="ic-desc">CodeResponseTypeHandler.issue() — authorization code generation</span>
+                <span class="ic-url">→ authCode = <span style="color:var(--accent-green)">23f5a92c-7d5d-3f8d-81d3-74061e56275f</span> (UUID-based, stored hashed)<br>→ DB INSERT: <span style="color:var(--accent-amber)">IDN_OAUTH2_AUTHORIZATION_CODE</span> {CONSUMER_KEY, CODE_ID, AUTHORIZATION_CODE(hashed), CALLBACK_URL, SCOPE, AUTHZ_USER, TENANT_ID, TIME_CREATED, VALIDITY_PERIOD=300s, PKCE_CODE_CHALLENGE, IDP_SESSION_IDENTIFIER}<br>→ AuthorizationGrantCache.addToCacheByCode(code → {userAttributes, authTime, amr[], sessionContextId, nonce, pkceCodeChallenge}) <span style="color:var(--accent-amber)">[Hazelcast — used by /oauth2/token]</span></span>
+              </div>
+            </div>
+            <div class="internal-call">
+              <span class="ic-arrow">7</span>
+              <div>
+                <span class="ic-desc">manageOIDCSessionState() — opBrowserState cookie + session_state computation</span>
+                <span class="ic-url">New browser session → DB INSERT: <span style="color:var(--accent-amber)">IDN_OIDC_SESSION_STATE</span> {cookieId, sessionParticipants=[ddWhQh14…], tenantDomain}<br>session_state = <span style="color:var(--accent-green)">SHA256(clientId + origin + opBrowserStateCookieId + salt)</span> + "." + salt<br>= efbcbaa3becdf2ee…qAITBGjxhA8ETNXrjp4FNw (the value in your HAR)</span>
+              </div>
+            </div>
+            <div class="internal-call">
+              <span class="ic-arrow">8</span>
+              <div>
+                <span class="ic-desc">SessionDataCache entry for e8055d93… — <span style="color:var(--accent-red)">invalidated</span></span>
+                <span class="ic-url">sessionDataKey is single-use by design. Replaying it will fail with "Context does not exist / invalidated cache"</span>
+              </div>
+            </div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">Redirect target (authorization code delivery)</div>
+            <div class="detail-content">https://localhost:9443/publisher/services/auth/callback/login<br>?code=23f5a92c-7d5d-3f8d-81d3-74061e56275f<br>&state=%2F<br>&session_state=efbcbaa3becdf2eec5b218969cb9eee987c979382f3f4d178f91e968015ccdbf.qAITBGjxhA8ETNXrjp4FNw</div>
+          </div>
+          <!-- COOKIES -->
+          <div class="cookie-panel">
+            <div class="cookie-panel-header sent">► cookies sent with request</div>
+            <div class="cookie-row">
+              <div class="cookie-name is-set">commonAuthId</div>
+              <div class="cookie-desc">Set in step 6 — IS reads this to load the authenticated SessionContext (user identity, authTime, AMR)</div>
+              <div class="cookie-flags"><span class="flag flag-ho">HttpOnly</span><span class="flag flag-sec">Secure</span></div>
+            </div>
+            <div class="cookie-row">
+              <div class="cookie-name jsread">CLIENT_ID</div>
+              <div class="cookie-desc">Set in step 3 — still in the browser jar, forwarded on this same-origin request</div>
+              <div class="cookie-flags"><span class="flag flag-sec">Secure</span><span class="flag flag-ses">session</span></div>
+            </div>
+          </div>
+          <div class="cookie-panel">
+            <div class="cookie-panel-header set">◄ cookies set by response</div>
+            <div class="cookie-row">
+              <div class="cookie-name is-set">opBrowserState <span class="flag flag-new">NEW</span></div>
+              <div class="cookie-desc">OIDC session management cookie — set by manageOIDCSessionState()<br>Value = random UUID identifying this browser's OIDC session. Used in session_state hash formula:<br>SHA256(clientId + origin + opBrowserState + salt) = the long hash in your HAR<br>Written to IDN_OIDC_SESSION_STATE with sessionParticipants=[ddWhQh14…]</div>
+              <div class="cookie-flags"><span class="flag flag-sec">Secure</span><span class="flag flag-path">path:/</span><span class="flag flag-exp">expires: session</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phase 4 -->
+    <div class="phase-label" style="color:var(--accent-green)">Phase 4 · Token Exchange (login_callback.jsp)</div>
+
+    <div class="step" onclick="toggle(this)">
+      <div class="num"><div class="num-circle c-green bg-green">8</div></div>
+      <div class="card c-green">
+        <div class="card-header">
+          <span class="method-badge bg-green c-green">GET</span>
+          <span class="url"><span class="host">https://localhost:9443</span>/publisher/services/auth/callback/login?code=23f5a92c…&state=%2F&session_state=efbcbaa3…</span>
+          <span class="status-badge tag-302">302 → /publisher/</span>
+          <span class="expand-hint"></span>
+        </div>
+        <div class="card-body">
+          <div class="detail-row">
+            <div class="detail-label">Handled by</div>
+            <div class="detail-content">login_callback.jsp</div>
+          </div>
+          <div class="internal-calls">
+            <div class="internal-calls-header">⬡ Server-side internal calls</div>
+            <div class="internal-call">
+              <span class="ic-arrow">→</span>
+              <div>
+                <span class="ic-desc">DB lookup — SystemApplicationDAO.getClientCredentialsForApplication("apim_publisher", "carbon.super")</span>
+                <span class="ic-url">Retrieves clientId + clientSecret for Basic auth header on token request</span>
+              </div>
+            </div>
+            <div class="internal-call">
+              <span class="ic-arrow">→</span>
+              <div>
+                <span class="ic-desc">POST /oauth2/token (loopback)</span>
+                <span class="ic-url">grant_type=authorization_code<br>code=23f5a92c-7d5d-3f8d-81d3-74061e56275f<br>redirect_uri=https://localhost:9443/publisher/services/auth/callback/login<br>Authorization: Basic base64(clientId:clientSecret)<br>[+ code_verifier if PKCE was used]</span>
+              </div>
+            </div>
+            <div class="internal-call">
+              <span class="ic-arrow">←</span>
+              <div>
+                <span class="ic-desc">Token response: access_token, refresh_token, id_token, expires_in</span>
+                <span class="ic-url">Tokens are split into Part1 (JS-readable) + Part2 (HttpOnly) for XSS mitigation</span>
+              </div>
+            </div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">Cookies sent with request (browser → login_callback.jsp)</div>
+          </div>
+          <div class="cookie-panel">
+            <div class="cookie-panel-header sent">► cookies sent with request</div>
+            <div class="cookie-row">
+              <div class="cookie-name is-set">commonAuthId</div>
+              <div class="cookie-desc">Embedded IS session — browser forwards on every same-origin request to 9443</div>
+              <div class="cookie-flags"><span class="flag flag-ho">HttpOnly</span><span class="flag flag-sec">Secure</span></div>
+            </div>
+            <div class="cookie-row">
+              <div class="cookie-name is-set">opBrowserState</div>
+              <div class="cookie-desc">OIDC browser state — forwarded, used to compute session_state in later checksession calls</div>
+              <div class="cookie-flags"><span class="flag flag-sec">Secure</span></div>
+            </div>
+            <div class="cookie-row">
+              <div class="cookie-name jsread">CLIENT_ID</div>
+              <div class="cookie-desc">apim_publisher clientId — login_callback.jsp does NOT read this cookie; it does its own DB lookup instead</div>
+              <div class="cookie-flags"><span class="flag flag-sec">Secure</span><span class="flag flag-ses">session</span></div>
+            </div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">Cookies set by response — 9 cookies from login_callback.jsp (source-confirmed)</div>
+          </div>
+          <div class="cookie-panel">
+            <div class="cookie-panel-header set">◄ access token split (P1 + P2)</div>
+            <div class="cookie-row">
+              <div class="cookie-name httponly">AM_ACC_TOKEN_DEFAULT_P2 <span class="flag flag-new">NEW</span></div>
+              <div class="cookie-desc">Second half of access_token — HttpOnly prevents JS reading. Set 3× for different paths so the gateway receives it on all protected API calls</div>
+              <div class="cookie-flags"><span class="flag flag-ho">HttpOnly</span><span class="flag flag-sec">Secure</span><span class="flag flag-path">path:/publisher/</span><span class="flag flag-exp">maxAge:expires_in</span></div>
+            </div>
+            <div class="cookie-row">
+              <div class="cookie-name httponly">AM_ACC_TOKEN_DEFAULT_P2</div>
+              <div class="cookie-desc">Same P2 value — second path registration for publisher API calls</div>
+              <div class="cookie-flags"><span class="flag flag-ho">HttpOnly</span><span class="flag flag-sec">Secure</span><span class="flag flag-path">path:/api/am/publisher/</span><span class="flag flag-exp">maxAge:expires_in</span></div>
+            </div>
+            <div class="cookie-row">
+              <div class="cookie-name httponly">AM_ACC_TOKEN_DEFAULT_P2</div>
+              <div class="cookie-desc">Same P2 value — third path for service catalog API calls</div>
+              <div class="cookie-flags"><span class="flag flag-ho">HttpOnly</span><span class="flag flag-sec">Secure</span><span class="flag flag-path">path:/api/am/service-catalog/v1/</span><span class="flag flag-exp">maxAge:expires_in</span></div>
+            </div>
+            <div class="cookie-row">
+              <div class="cookie-name jsread">WSO2_AM_TOKEN_1_Default <span class="flag flag-new">NEW</span></div>
+              <div class="cookie-desc">First half of access_token — JS-readable. SPA reads this + server reads HttpOnly P2 to reassemble full token in introspect.jsp / refresh.jsp</div>
+              <div class="cookie-flags"><span class="flag flag-sec">Secure</span><span class="flag flag-path">path:/publisher/</span><span class="flag flag-exp">maxAge:expires_in</span></div>
+            </div>
+          </div>
+          <div class="cookie-panel">
+            <div class="cookie-panel-header set">◄ refresh token split (P1 + P2)</div>
+            <div class="cookie-row">
+              <div class="cookie-name httponly">AM_REF_TOKEN_DEFAULT_P2 <span class="flag flag-new">NEW</span></div>
+              <div class="cookie-desc">Second half of refresh_token — HttpOnly. refresh.jsp reads this + body param P1 to call /oauth2/token with grant_type=refresh_token</div>
+              <div class="cookie-flags"><span class="flag flag-ho">HttpOnly</span><span class="flag flag-sec">Secure</span><span class="flag flag-path">path:/publisher/</span><span class="flag flag-exp">maxAge:86400 (1 day)</span></div>
+            </div>
+            <div class="cookie-row">
+              <div class="cookie-name jsread">WSO2_AM_REFRESH_TOKEN_1_Default <span class="flag flag-new">NEW</span></div>
+              <div class="cookie-desc">First half of refresh_token — JS-readable. SPA sends this as body param when calling /publisher/services/auth/refresh</div>
+              <div class="cookie-flags"><span class="flag flag-sec">Secure</span><span class="flag flag-path">path:/publisher/</span><span class="flag flag-exp">maxAge:86400 (1 day)</span></div>
+            </div>
+          </div>
+          <div class="cookie-panel">
+            <div class="cookie-panel-header set">◄ id token split (P1 + P2) + session state</div>
+            <div class="cookie-row">
+              <div class="cookie-name jsread">AM_ID_TOKEN_DEFAULT_P1 <span class="flag flag-new">NEW</span></div>
+              <div class="cookie-desc">First half of id_token — only sent to /services/logout path. logout.jsp reads P1+P2 to build the id_token_hint param for OIDC logout</div>
+              <div class="cookie-flags"><span class="flag flag-sec">Secure</span><span class="flag flag-path">path:/publisher/services/logout</span><span class="flag flag-exp">maxAge:expires_in</span></div>
+            </div>
+            <div class="cookie-row">
+              <div class="cookie-name jsread">AM_ID_TOKEN_DEFAULT_P2 <span class="flag flag-new">NEW</span></div>
+              <div class="cookie-desc">Second half of id_token — same restricted path as P1</div>
+              <div class="cookie-flags"><span class="flag flag-sec">Secure</span><span class="flag flag-path">path:/publisher/services/logout</span><span class="flag flag-exp">maxAge:expires_in</span></div>
+            </div>
+            <div class="cookie-row">
+              <div class="cookie-name jsread">publisher_session_state <span class="flag flag-new">NEW</span></div>
+              <div class="cookie-desc">OIDC session_state value from IS (efbcbaa3…qAITBGjx…) — SPA uses this for session monitoring via the /oidc/checksession iframe to detect SSO logout in other tabs</div>
+              <div class="cookie-flags"><span class="flag flag-sec">Secure</span><span class="flag flag-path">path:/publisher/</span><span class="flag flag-ses">session (maxAge:-1)</span></div>
+            </div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">Final redirect</div>
+            <div class="detail-content">response.sendRedirect(context + "/") → https://localhost:9443/publisher/</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phase 5 -->
+    <div class="phase-label" style="color:var(--accent-purple)">Phase 5 · Authenticated App Load + Introspection</div>
+
+    <div class="step" onclick="toggle(this)">
+      <div class="num"><div class="num-circle c-purple bg-purple">9</div></div>
+      <div class="card c-purple">
+        <div class="card-header">
+          <span class="method-badge bg-purple c-purple">GET</span>
+          <span class="url"><span class="host">https://localhost:9443</span>/publisher/</span>
+          <span class="status-badge tag-200">200 OK</span>
+          <span class="expand-hint"></span>
+        </div>
+        <div class="card-body">
+          <div class="detail-row">
+            <div class="detail-label">What happens</div>
+            <div class="detail-content">Browser reloads the Publisher SPA with all auth cookies now set. JS bundles, fonts, CSS, and portalSettings.js are fetched again. The SPA now has authenticated context.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step" onclick="toggle(this)">
+      <div class="num"><div class="num-circle c-purple bg-purple">10</div></div>
+      <div class="card c-purple">
+        <div class="card-header">
+          <span class="method-badge bg-purple c-purple">GET</span>
+          <span class="url"><span class="host">https://localhost:9443</span>/publisher/services/auth/introspect</span>
+          <span class="status-badge tag-200">200 OK</span>
+          <span class="expand-hint"></span>
+        </div>
+        <div class="card-body">
+          <div class="detail-row">
+            <div class="detail-label">Handled by</div>
+            <div class="detail-content">introspect.jsp — SPA calls this to validate the session and get user identity after page load</div>
+          </div>
+          <div class="internal-calls">
+            <div class="internal-calls-header">⬡ Server-side internal calls</div>
+            <div class="internal-call">
+              <span class="ic-arrow">→</span>
+              <div>
+                <span class="ic-desc">Reads cookies: WSO2_AM_TOKEN_1_Default (P1) + AM_ACC_TOKEN_DEFAULT_P2 (P2)</span>
+                <span class="ic-url">Reassembles full access_token = P1 + P2</span>
+              </div>
+            </div>
+            <div class="internal-call">
+              <span class="ic-arrow">→</span>
+              <div>
+                <span class="ic-desc">GET /oauth2/userinfo (loopback)</span>
+                <span class="ic-url">Authorization: Basic {token} — fetches user claims</span>
+              </div>
+            </div>
+            <div class="internal-call">
+              <span class="ic-arrow">→</span>
+              <div>
+                <span class="ic-desc">POST /oauth2/introspect (loopback)</span>
+                <span class="ic-url">token={access_token}<br>Authorization: Basic base64(admin:admin) — validates token, gets scope/exp/username</span>
+              </div>
+            </div>
+            <div class="internal-call">
+              <span class="ic-arrow">←</span>
+              <div>
+                <span class="ic-desc">Returns JSON: {active, scope, username, exp, client_id, token_type}</span>
+                <span class="ic-url">SPA uses this to render the authenticated UI and check permissions</span>
+              </div>
+            </div>
+          </div>
+          <!-- COOKIES -->
+          <div class="cookie-panel">
+            <div class="cookie-panel-header sent">► cookies sent with request (SPA → introspect.jsp)</div>
+            <div class="cookie-row">
+              <div class="cookie-name jsread">WSO2_AM_TOKEN_1_Default</div>
+              <div class="cookie-desc">Access token P1 — JS-readable, browser auto-sends to /publisher/ path. introspect.jsp reads this from request.getCookies()</div>
+              <div class="cookie-flags"><span class="flag flag-sec">Secure</span><span class="flag flag-path">path:/publisher/</span></div>
+            </div>
+            <div class="cookie-row">
+              <div class="cookie-name httponly">AM_ACC_TOKEN_DEFAULT_P2</div>
+              <div class="cookie-desc">Access token P2 — HttpOnly, browser sends automatically. introspect.jsp reads this server-side. JS cannot read it — this is the security boundary</div>
+              <div class="cookie-flags"><span class="flag flag-ho">HttpOnly</span><span class="flag flag-sec">Secure</span><span class="flag flag-path">path:/publisher/</span></div>
+            </div>
+            <div class="cookie-row">
+              <div class="cookie-name is-set">commonAuthId</div>
+              <div class="cookie-desc">Embedded IS SSO cookie — forwarded on all requests to :9443, not used by introspect.jsp directly</div>
+              <div class="cookie-flags"><span class="flag flag-ho">HttpOnly</span><span class="flag flag-sec">Secure</span></div>
+            </div>
+          </div>
+          <div class="cookie-panel">
+            <div class="cookie-panel-header note">◄ cookies set by response</div>
+            <div class="cookie-note">None — introspect.jsp only returns a JSON body. No cookies modified.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step" onclick="toggle(this)">
+      <div class="num"><div class="num-circle c-purple bg-purple">11</div></div>
+      <div class="card c-purple">
+        <div class="card-header">
+          <span class="method-badge bg-purple c-purple">GET</span>
+          <span class="url"><span class="host">https://localhost:9443</span>/oidc/checksession?client_id=ddWhQh14…&redirect_uri=…/callback/login</span>
+          <span class="status-badge tag-200">200 OK</span>
+          <span class="expand-hint"></span>
+        </div>
+        <div class="card-body">
+          <div class="detail-row">
+            <div class="detail-label">Purpose</div>
+            <div class="detail-content">SPA loads the OIDC session check iframe (configured via AppConfig.idp.checkSessionEndpoint from settings.jsp). Used for silent token refresh and SSO session monitoring — detects logout in other tabs/apps.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step" onclick="toggle(this)">
+      <div class="num"><div class="num-circle c-purple bg-purple">12</div></div>
+      <div class="card c-purple">
+        <div class="card-header">
+          <span class="method-badge bg-purple c-purple">GET</span>
+          <span class="url"><span class="host">https://localhost:9443</span>/api/am/publisher/v4/apis?limit=10&offset=0</span>
+          <span class="status-badge tag-200">200 OK</span>
+          <span class="expand-hint"></span>
+        </div>
+        <div class="card-body">
+          <div class="detail-row">
+            <div class="detail-label">What happens</div>
+            <div class="detail-content">First authenticated API call. The browser sends AM_ACC_TOKEN_DEFAULT_P2 (HttpOnly cookie) automatically. The APIM gateway/backend reassembles the token from the split cookies and validates it. Login flow complete — Publisher dashboard renders.</div>
+          </div>
+          <!-- COOKIES -->
+          <div class="cookie-panel">
+            <div class="cookie-panel-header sent">► cookies sent with request (browser → APIM gateway)</div>
+            <div class="cookie-row">
+              <div class="cookie-name httponly">AM_ACC_TOKEN_DEFAULT_P2</div>
+              <div class="cookie-desc">Access token P2 — browser sends to /api/am/publisher/ path automatically (HttpOnly, path-scoped). APIM gateway handler reads this + WSO2_AM_TOKEN_1_Default to reconstruct the bearer token</div>
+              <div class="cookie-flags"><span class="flag flag-ho">HttpOnly</span><span class="flag flag-sec">Secure</span><span class="flag flag-path">path:/api/am/publisher/</span></div>
+            </div>
+            <div class="cookie-row">
+              <div class="cookie-name jsread">WSO2_AM_TOKEN_1_Default</div>
+              <div class="cookie-desc">Access token P1 — JS-readable, browser auto-sends to /publisher/ path. Gateway combines P1+P2 to form the full bearer token for upstream validation</div>
+              <div class="cookie-flags"><span class="flag flag-sec">Secure</span><span class="flag flag-path">path:/publisher/</span></div>
+            </div>
+          </div>
+          <div class="cookie-panel">
+            <div class="cookie-panel-header note">◄ cookies set by response</div>
+            <div class="cookie-note">None — API responses do not modify cookies. Cookie state is now stable until token expiry triggers a refresh flow.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- .flow -->
+
+  </div><!-- .flow -->
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       REACT SPA SESSION DECISION DIAGRAM
+  ══════════════════════════════════════════════════════════════════ -->
+  <div style="margin-top:48px;">
+    <div style="font-weight:800;font-size:1.1rem;letter-spacing:-0.02em;margin-bottom:6px;background:linear-gradient(135deg,#f59e0b,#ef4444);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">
+      React SPA — Session Detection Decision Tree
+    </div>
+    <div style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:var(--muted);margin-bottom:24px;">
+      How <code style="color:var(--accent-cyan)">ProtectedApp.componentDidMount()</code> decides whether to show the login page or the dashboard — based on actual source extracted from <code style="color:var(--accent-amber)">index.bundle.js</code>
+    </div>
+
+    <!-- Decision tree visual -->
+    <div style="background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:24px;overflow-x:auto;">
+
+      <!-- Row 1: Start -->
+      <div style="display:flex;justify-content:center;margin-bottom:0;">
+        <div style="background:rgba(59,130,246,0.12);border:2px solid var(--accent-blue);border-radius:10px;padding:10px 22px;font-family:'JetBrains Mono',monospace;font-size:0.75rem;font-weight:700;color:var(--accent-blue);text-align:center;">
+          React SPA mounts<br>
+          <span style="font-size:0.65rem;font-weight:400;color:var(--muted)">ProtectedApp.componentDidMount()</span>
+        </div>
+      </div>
+
+      <!-- Arrow down -->
+      <div style="text-align:center;color:var(--muted);font-size:1.2rem;line-height:1.6;">↓</div>
+
+      <!-- Row 2: Check 1 -->
+      <div style="display:flex;justify-content:center;margin-bottom:0;">
+        <div style="background:rgba(139,92,246,0.1);border:2px solid var(--accent-purple);border-radius:10px;padding:10px 22px;font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:var(--accent-purple);text-align:center;max-width:380px;">
+          <span style="font-weight:700;">①</span> <code>AuthManager.getUser()</code><br>
+          <span style="font-size:0.65rem;color:var(--muted);">Check in-memory JS store (same tab?)</span>
+        </div>
+      </div>
+
+      <!-- Arrow + branches -->
+      <div style="display:flex;justify-content:center;gap:120px;margin-top:6px;margin-bottom:0;">
+        <div style="text-align:center;color:var(--accent-green);font-family:'JetBrains Mono',monospace;font-size:0.7rem;">
+          <div style="margin-bottom:2px;">↙ <strong>User found</strong></div>
+          <div style="font-size:0.62rem;color:var(--muted);">(same tab refresh)</div>
+        </div>
+        <div style="text-align:center;color:var(--accent-amber);font-family:'JetBrains Mono',monospace;font-size:0.7rem;">
+          <div style="margin-bottom:2px;"><strong>null</strong> ↘</div>
+          <div style="font-size:0.62rem;color:var(--muted);">(new tab / hard refresh)</div>
+        </div>
+      </div>
+
+      <!-- Row 3: Two branches -->
+      <div style="display:flex;justify-content:center;gap:24px;align-items:flex-start;margin-top:2px;">
+
+        <!-- Left: user in memory -->
+        <div style="min-width:260px;max-width:300px;">
+          <div style="background:rgba(16,185,129,0.08);border:1px solid var(--accent-green);border-radius:10px;padding:12px 14px;font-family:'JetBrains Mono',monospace;font-size:0.7rem;">
+            <div style="color:var(--accent-green);font-weight:700;margin-bottom:6px;">Check scopes</div>
+            <div style="color:var(--muted);font-size:0.65rem;line-height:1.7;">
+              has <code style="color:var(--text)">apim:api_view</code>?<br>
+              has <code style="color:var(--text)">apim:publisher_settings</code>?
+            </div>
+            <div style="display:flex;gap:8px;margin-top:10px;">
+              <div style="flex:1;background:rgba(16,185,129,0.12);border:1px solid var(--accent-green);border-radius:6px;padding:6px 8px;text-align:center;font-size:0.65rem;color:var(--accent-green);">
+                ✓ YES<br><span style="color:var(--muted);">render dashboard</span>
+              </div>
+              <div style="flex:1;background:rgba(239,68,68,0.1);border:1px solid var(--accent-red);border-radius:6px;padding:6px 8px;text-align:center;font-size:0.65rem;color:var(--accent-red);">
+                ✗ NO<br><span style="color:var(--muted);">403 insufficient</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: no user in memory -->
+        <div style="min-width:340px;max-width:420px;">
+          <div style="background:rgba(245,158,11,0.07);border:1px solid rgba(245,158,11,0.4);border-radius:10px;padding:12px 14px;font-family:'JetBrains Mono',monospace;font-size:0.7rem;">
+            <div style="color:var(--accent-amber);font-weight:700;margin-bottom:8px;">② <code>AuthManager.getUserFromToken()</code></div>
+
+            <!-- Sub-step A -->
+            <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px;">
+              <div style="background:rgba(245,158,11,0.15);border-radius:4px;padding:2px 6px;font-size:0.62rem;color:var(--accent-amber);flex-shrink:0;">A</div>
+              <div style="color:var(--muted);font-size:0.65rem;line-height:1.6;">
+                <code style="color:var(--text)">Utils.getCookie("WSO2_AM_TOKEN_1_Default")</code><br>
+                Read the JS-readable half of the access token
+              </div>
+            </div>
+
+            <!-- Branch on cookie presence -->
+            <div style="display:flex;gap:10px;margin-bottom:10px;">
+              <div style="flex:1;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:6px;padding:8px;font-size:0.65rem;">
+                <div style="color:var(--accent-red);font-weight:700;margin-bottom:4px;">Cookie MISSING</div>
+                <div style="color:var(--muted);line-height:1.6;">No network call made.<br>
+                  Reject with <code style="color:var(--accent-red)">NO_TOKEN_FOUND</code><br>
+                  → redirect to<br>
+                  <code style="color:var(--accent-blue)">/services/auth/login</code>
+                </div>
+              </div>
+              <div style="flex:1;background:rgba(6,182,212,0.07);border:1px solid rgba(6,182,212,0.3);border-radius:6px;padding:8px;font-size:0.65rem;">
+                <div style="color:var(--accent-cyan);font-weight:700;margin-bottom:4px;">Cookie EXISTS</div>
+                <div style="color:var(--muted);line-height:1.6;">Proceed to sub-step B</div>
+              </div>
+            </div>
+
+            <!-- Sub-step B -->
+            <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px;">
+              <div style="background:rgba(6,182,212,0.15);border-radius:4px;padding:2px 6px;font-size:0.62rem;color:var(--accent-cyan);flex-shrink:0;">B</div>
+              <div style="color:var(--muted);font-size:0.65rem;line-height:1.6;">
+                <code style="color:var(--text)">fetch("/publisher/services/auth/introspect", { credentials: "same-origin" })</code><br>
+                Browser auto-sends P1 + P2 (HttpOnly) cookies.<br>
+                JSP reassembles → calls IS <code style="color:var(--text)">/oauth2/introspect</code>
+              </div>
+            </div>
+
+            <!-- Introspect result branches -->
+            <div style="display:flex;gap:8px;">
+              <div style="flex:1;background:rgba(16,185,129,0.08);border:1px solid var(--accent-green);border-radius:6px;padding:8px;font-size:0.65rem;text-align:center;">
+                <div style="color:var(--accent-green);font-weight:700;">active: true</div>
+                <div style="color:var(--muted);margin-top:4px;line-height:1.5;">Build User object<br>setUser() → memory<br><strong style="color:var(--accent-green);">render dashboard ✓</strong></div>
+              </div>
+              <div style="flex:1;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:6px;padding:8px;font-size:0.65rem;text-align:center;">
+                <div style="color:var(--accent-red);font-weight:700;">active: false</div>
+                <div style="color:var(--muted);margin-top:4px;line-height:1.5;">Token expired<br>→ redirect to<br><code style="color:var(--accent-blue)">/services/auth/login</code></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- end two branches -->
+
+    </div><!-- end decision panel -->
+
+    <!-- Source code annotation -->
+    <div style="margin-top:16px;background:rgba(6,182,212,0.04);border:1px solid rgba(6,182,212,0.15);border-radius:10px;padding:14px 18px;">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:0.65rem;color:var(--accent-cyan);font-weight:700;letter-spacing:0.08em;margin-bottom:8px;">ACTUAL SOURCE — EXTRACTED FROM index.bundle.js</div>
+      <pre style="font-family:'JetBrains Mono',monospace;font-size:0.67rem;color:var(--muted);line-height:1.8;overflow-x:auto;white-space:pre-wrap;"><span style="color:var(--accent-purple)">// ProtectedApp.componentDidMount()</span>
+<span style="color:var(--text)">const user</span> = <span style="color:var(--accent-amber)">AuthManager.getUser()</span>;          <span style="color:var(--muted)">// ← check in-memory store first</span>
+<span style="color:var(--accent-blue)">if</span> (user) {
+  <span style="color:var(--muted)">// Same-tab refresh: user already in memory</span>
+  user.scopes.includes(<span style="color:var(--accent-green)">'apim:api_view'</span>) &amp;&amp; user.scopes.includes(<span style="color:var(--accent-green)">'apim:publisher_settings'</span>)
+    ? setState({ user, userResolved: true })     <span style="color:var(--accent-green)">// ✓ render dashboard</span>
+    : setState({ notEnoughPermission: true });    <span style="color:var(--accent-red)">// ✗ 403</span>
+} <span style="color:var(--accent-blue)">else</span> {
+  <span style="color:var(--muted)">// New tab / hard refresh: try to restore from cookies</span>
+  <span style="color:var(--accent-amber)">AuthManager.getUserFromToken()</span>
+    .then(user =&gt; setState({ user, userResolved: true }))  <span style="color:var(--accent-green)">// ✓ dashboard</span>
+    .catch(err =&gt; setState({ userResolved: true }));       <span style="color:var(--accent-red)">// ✗ → login redirect</span>
+}
+
+<span style="color:var(--accent-purple)">// getUserFromToken() — the actual cookie check:</span>
+<span style="color:var(--accent-blue)">const</span> tokenP1 = <span style="color:var(--accent-amber)">Utils.getCookie(<span style="color:var(--accent-green)">"WSO2_AM_TOKEN_1_Default"</span>)</span>;
+<span style="color:var(--accent-blue)">if</span> (!tokenP1) <span style="color:var(--accent-blue)">return</span> <span style="color:var(--accent-red)">reject(new Error("NO_TOKEN_FOUND"))</span>;  <span style="color:var(--muted)">// no network call</span>
+<span style="color:var(--accent-blue)">return</span> fetch(<span style="color:var(--accent-green)">"/publisher/services/auth/introspect"</span>, { credentials: <span style="color:var(--accent-green)">"same-origin"</span> })
+  .then(r =&gt; r.json())
+  .then(result =&gt; {
+    <span style="color:var(--accent-blue)">if</span> (!result.active) <span style="color:var(--accent-blue)">throw</span> <span style="color:var(--accent-red)">new Error("INVALID_TOKEN")</span>;
+    <span style="color:var(--accent-blue)">const</span> user = <span style="color:var(--accent-blue)">new</span> User(env.label, result.username);
+    user.scopes = result.scope.split(<span style="color:var(--accent-green)">' '</span>);
+    <span style="color:var(--accent-amber)">AuthManager.setUser(user)</span>;   <span style="color:var(--muted)">// store in memory for next getUser() call</span>
+    <span style="color:var(--accent-blue)">return</span> user;
+  });</pre>
+    </div>
+
+    <!-- The two HAR comparison -->
+    <div style="margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+
+      <!-- HAR 1: Full login -->
+      <div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px;">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:0.65rem;font-weight:700;letter-spacing:0.08em;color:var(--accent-blue);margin-bottom:10px;">HAR 1 — FRESH LOGIN (cookies absent)</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:0.67rem;color:var(--muted);line-height:2;">
+          <span style="color:var(--accent-green)">✓</span> settings.js loaded<br>
+          <span style="color:var(--accent-green)">✓</span> getUser() → <span style="color:var(--accent-red)">null</span><br>
+          <span style="color:var(--accent-green)">✓</span> getCookie("WSO2_AM_TOKEN_1_Default") → <span style="color:var(--accent-red)">""</span><br>
+          <span style="color:var(--accent-red)">→</span> <strong style="color:var(--text)">reject(NO_TOKEN_FOUND)</strong><br>
+          <span style="color:var(--accent-red)">→</span> redirect to <code style="color:var(--accent-blue)">/services/auth/login</code><br>
+          <span style="color:var(--accent-amber)">→</span> full OAuth2 Authorization Code flow (Steps 3–8)<br>
+          <span style="color:var(--accent-green)">→</span> login_callback.jsp sets 9 cookies<br>
+          <span style="color:var(--accent-green)">→</span> introspect called → active:true → dashboard ✓
+        </div>
+      </div>
+
+      <!-- HAR 2: SSO fast path -->
+      <div style="background:var(--panel);border:1px solid rgba(16,185,129,0.3);border-radius:10px;padding:16px;">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:0.65rem;font-weight:700;letter-spacing:0.08em;color:var(--accent-green);margin-bottom:10px;">HAR 2 — SSO FAST PATH (cookies present from other tab)</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:0.67rem;color:var(--muted);line-height:2;">
+          <span style="color:var(--accent-green)">✓</span> settings.js loaded<br>
+          <span style="color:var(--accent-green)">✓</span> getUser() → <span style="color:var(--accent-red)">null</span> (new tab, fresh memory)<br>
+          <span style="color:var(--accent-green)">✓</span> getCookie("WSO2_AM_TOKEN_1_Default") → <span style="color:var(--accent-green)">P1 value</span> (cookie from other tab!)<br>
+          <span style="color:var(--accent-cyan)">→</span> fetch introspect → active:true<br>
+          <span style="color:var(--accent-green)">→</span> User object built → setUser() → memory<br>
+          <span style="color:var(--accent-green)">→</span> <strong style="color:var(--text)">dashboard renders directly ✓</strong><br>
+          <span style="color:var(--muted)">⊘ NO /services/auth/login call</span><br>
+          <span style="color:var(--muted)">⊘ NO /oauth2/authorize redirect</span>
+        </div>
+      </div>
+
+    </div><!-- end har comparison grid -->
+
+  </div><!-- end react decision section -->
+
+  <!-- Summary box -->
+  <div style="margin-top:40px;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:20px 24px;">
+    <div style="font-weight:700;font-size:0.9rem;margin-bottom:12px;color:var(--accent-cyan)">Token Split Strategy — XSS Mitigation</div>
+    <div style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:var(--muted);line-height:1.9">
+      access_token = <span style="color:var(--accent-blue)">WSO2_AM_TOKEN_1_Default (P1)</span> + <span style="color:var(--accent-green)">AM_ACC_TOKEN_DEFAULT_P2 (P2, HttpOnly)</span><br>
+      refresh_token = <span style="color:var(--accent-amber)">WSO2_AM_REFRESH_TOKEN_1_Default (P1)</span> + <span style="color:var(--accent-amber)">AM_REF_TOKEN_DEFAULT_P2 (P2, HttpOnly)</span><br>
+      id_token     = <span style="color:var(--accent-purple)">AM_ID_TOKEN_DEFAULT_P1</span> + <span style="color:var(--accent-purple)">AM_ID_TOKEN_DEFAULT_P2</span> (both path: /publisher/services/logout)<br><br>
+      <span style="color:var(--text)">Neither half alone is a valid token → XSS in the SPA can read P1 but cannot use it without P2 (HttpOnly). Server-side JSPs (login_callback.jsp, introspect.jsp, refresh.jsp) always reassemble P1+P2 server-side.</span>
+    </div>
+  </div>
+
+  <!-- IS DB + Cache reference box -->
+  <div style="margin-top:16px;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:20px 24px;">
+    <div style="font-weight:700;font-size:0.9rem;margin-bottom:12px;color:var(--accent-amber)"<>Embedded IS — Key DB Tables &amp; Caches</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+      <div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:0.65rem;font-weight:700;letter-spacing:0.08em;color:var(--accent-amber);margin-bottom:8px;">DATABASE TABLES</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:var(--muted);line-height:2">
+          <span style="color:var(--text)">IDN_OAUTH_CONSUMER_APPS</span> — OAuth2 app registration (client_id, secret, callback)<br>
+          <span style="color:var(--text)">SP_APP + SP_INBOUND_AUTH</span> — Service Provider config (saasApp, skipConsent flags)<br>
+          <span style="color:var(--text)">IDN_OAUTH2_SCOPE</span> — scope definitions<br>
+          <span style="color:var(--text)">IDN_OAUTH2_SCOPE_BINDING</span> — role → scope permission map<br>
+          <span style="color:var(--text)">IDN_OAUTH2_AUTHORIZATION_CODE</span> — issued codes (hashed, PKCE fields, 300s TTL)<br>
+          <span style="color:var(--text)">IDN_OIDC_SESSION_STATE</span> — OIDC session participants per browser (opBrowserState)<br>
+          <span style="color:var(--text)">IDN_OPENID_USER_RPS</span> — user ↔ app approval records (consent skip check)
+        </div>
+      </div>
+      <div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:0.65rem;font-weight:700;letter-spacing:0.08em;color:var(--accent-cyan);margin-bottom:8px;">HAZELCAST CACHES</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:var(--muted);line-height:2">
+          <span style="color:var(--text)">SessionDataCache</span> → keyed by sessionDataKey — parks OAuth2Parameters during auth redirect<br>
+          <span style="color:var(--text)">AuthnResultCache</span> → keyed by sessionDataKey — holds AuthenticationResult after /commonauth<br>
+          <span style="color:var(--text)">AuthorizationGrantCache</span> → keyed by authCode — carries user attributes + amr + pkce to /oauth2/token<br>
+          <span style="color:var(--text)">AppInfoCache</span> → keyed by clientId — caches OAuthAppDO to avoid repeat DB lookups<br>
+          <span style="color:var(--text)">OAuthCache</span> → keyed by clientId:code — fast code lookup at token exchange
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:14px;font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:var(--muted);border-top:1px solid var(--border);padding-top:12px;">
+      <span style="color:var(--accent-cyan)">sessionDataKey lifecycle:</span> Generated in Hit 1 → passed through browser as correlation ID → used to restore state in Hit 2 → <span style="color:var(--accent-red)">immediately invalidated</span> (single-use). Replaying a consumed key fails with "Context does not exist / invalidated cache".
+    </div>
+  </div>
+
+</div><!-- .page -->
+
+<script>
+function toggle(el) {
+  el.classList.toggle('open');
+}
+// Auto-open key steps
+document.querySelectorAll('.step')[2].classList.add('open');  // step 3 idp.jsp
+document.querySelectorAll('.step')[3].classList.add('open');  // step 4 IS Hit 1
+document.querySelectorAll('.step')[6].classList.add('open');  // step 7 IS Hit 2
+document.querySelectorAll('.step')[7].classList.add('open');  // step 8 token exchange
+</script>
+</body>
+</html>

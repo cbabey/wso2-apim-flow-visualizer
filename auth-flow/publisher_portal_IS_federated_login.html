@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WSO2 APIM Publisher — Federated SSO Login Flow (:9443 → :9444)</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;600;700;800&display=swap');
+
+  :root {
+    --bg: #0b0e14;
+    --panel: #111520;
+    --border: #1e2535;
+    --accent-blue:   #3b82f6;
+    --accent-cyan:   #06b6d4;
+    --accent-green:  #10b981;
+    --accent-amber:  #f59e0b;
+    --accent-purple: #8b5cf6;
+    --accent-red:    #ef4444;
+    --accent-pink:   #ec4899;
+    --accent-teal:   #14b8a6;
+    --text:  #e2e8f0;
+    --muted: #64748b;
+    --dim:   #334155;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Syne', sans-serif; min-height: 100vh; overflow-x: hidden; }
+  body::before {
+    content: ''; position: fixed; inset: 0;
+    background-image: linear-gradient(rgba(59,130,246,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(59,130,246,0.03) 1px, transparent 1px);
+    background-size: 40px 40px; pointer-events: none; z-index: 0;
+  }
+  .page { position: relative; z-index: 1; padding: 32px 24px 80px; max-width: 1400px; margin: 0 auto; }
+
+  header { margin-bottom: 32px; }
+  header h1 {
+    font-size: clamp(1.2rem, 2.5vw, 1.75rem); font-weight: 800; letter-spacing: -0.02em;
+    background: linear-gradient(135deg, #ec4899, #8b5cf6, #3b82f6);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  header p { color: var(--muted); font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; margin-top: 6px; }
+
+  /* federation banner */
+  .fed-banner {
+    background: rgba(236,72,153,0.06); border: 1px solid rgba(236,72,153,0.25);
+    border-left: 4px solid var(--accent-pink); border-radius: 10px;
+    padding: 12px 18px; margin-bottom: 28px;
+    font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; line-height: 1.9; color: var(--muted);
+  }
+  .fed-banner strong { color: var(--accent-pink); }
+  .port { display: inline-block; padding: 1px 7px; border-radius: 4px; font-weight: 700; font-size: 0.68rem; }
+  .port-9443 { background: rgba(59,130,246,0.15); color: var(--accent-blue); border: 1px solid rgba(59,130,246,0.3); }
+  .port-9444 { background: rgba(236,72,153,0.12); color: var(--accent-pink); border: 1px solid rgba(236,72,153,0.3); }
+
+  /* legend */
+  .legend { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 32px; }
+  .legend-item { display: flex; align-items: center; gap: 8px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; font-size: 0.72rem; font-family: 'JetBrains Mono', monospace; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+  /* Actors */
+  .actors { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 32px; }
+  .actor { background: var(--panel); border: 1px solid var(--border); border-top: 3px solid; border-radius: 10px; padding: 12px 14px; text-align: center; }
+  .actor .icon { font-size: 1.5rem; margin-bottom: 5px; }
+  .actor .label { font-weight: 700; font-size: 0.82rem; }
+  .actor .sublabel { color: var(--muted); font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; margin-top: 3px; line-height: 1.4; }
+
+  /* Flow */
+  .flow { display: flex; flex-direction: column; gap: 0; }
+  .step { display: grid; grid-template-columns: 36px 1fr; gap: 0 16px; position: relative; cursor: pointer; }
+  .step:not(:last-child) .num::after {
+    content: ''; position: absolute; left: 17px; top: 44px; bottom: 0; width: 2px; background: var(--border); z-index: 0;
+  }
+  .num { position: relative; display: flex; flex-direction: column; align-items: center; padding-top: 12px; }
+  .num-circle {
+    width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 0.78rem;
+    border: 2px solid; position: relative; z-index: 1; flex-shrink: 0; transition: transform 0.15s;
+  }
+  .step:hover .num-circle { transform: scale(1.1); }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-left: 3px solid;
+    border-radius: 10px; margin-bottom: 6px; margin-top: 6px; overflow: hidden;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .step:hover .card { box-shadow: 0 4px 24px rgba(0,0,0,0.4); }
+  .card-header { display: flex; align-items: center; gap: 10px; padding: 11px 16px; flex-wrap: wrap; }
+  .method-badge { font-family: 'JetBrains Mono', monospace; font-size: 0.68rem; font-weight: 700; padding: 2px 7px; border-radius: 4px; flex-shrink: 0; letter-spacing: 0.05em; }
+  .status-badge { font-family: 'JetBrains Mono', monospace; font-size: 0.68rem; font-weight: 600; padding: 2px 7px; border-radius: 4px; margin-left: auto; flex-shrink: 0; }
+  .url { font-family: 'JetBrains Mono', monospace; font-size: 0.73rem; color: var(--text); word-break: break-all; flex: 1; }
+  .url .host-9443 { color: var(--accent-blue); }
+  .url .host-9444 { color: var(--accent-pink); }
+  .card-body { padding: 0 16px 14px; display: none; }
+  .step.open .card-body { display: block; }
+
+  .detail-row { margin-top: 10px; }
+  .detail-label { font-family: 'JetBrains Mono', monospace; font-size: 0.63rem; font-weight: 700; letter-spacing: 0.08em; color: var(--muted); text-transform: uppercase; margin-bottom: 4px; }
+  .detail-content { font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; color: var(--accent-cyan); background: rgba(6,182,212,0.05); border: 1px solid rgba(6,182,212,0.15); border-radius: 6px; padding: 8px 10px; line-height: 1.65; word-break: break-all; }
+
+  .internal-calls { margin-top: 10px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .internal-calls-header { background: rgba(139,92,246,0.08); border-bottom: 1px solid var(--border); padding: 6px 12px; font-size: 0.63rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent-purple); font-family: 'JetBrains Mono', monospace; }
+  .internal-call { padding: 8px 12px; border-bottom: 1px solid var(--border); font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; display: flex; align-items: flex-start; gap: 10px; line-height: 1.5; }
+  .internal-call:last-child { border-bottom: none; }
+  .ic-arrow { color: var(--accent-purple); flex-shrink: 0; min-width: 18px; }
+  .ic-desc { color: var(--text); }
+  .ic-url { color: var(--muted); display: block; font-size: 0.65rem; margin-top: 2px; }
+
+  /* Phase label */
+  .phase-label { font-size: 0.63rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); font-family: 'JetBrains Mono', monospace; padding: 18px 0 6px 52px; display: flex; align-items: center; gap: 8px; }
+  .phase-label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+  /* federation boundary marker */
+  .fed-boundary {
+    margin: 4px 0 4px 52px; padding: 8px 14px;
+    border-radius: 0 8px 8px 0; font-family: 'JetBrains Mono', monospace; font-size: 0.67rem; line-height: 1.7;
+    display: flex; align-items: center; gap: 10px;
+  }
+
+  /* expand hint */
+  .expand-hint { color: var(--muted); font-size: 0.62rem; font-family: 'JetBrains Mono', monospace; margin-left: auto; padding-left: 8px; flex-shrink: 0; }
+  .step.open .expand-hint::before { content: '▲ collapse'; }
+  .step:not(.open) .expand-hint::before { content: '▼ expand'; }
+
+  /* Cookie panel */
+  .cookie-panel { margin-top: 10px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .cookie-panel-header { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--border); font-family: 'JetBrains Mono', monospace; font-size: 0.63rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+  .cookie-panel-header.sent { background: rgba(245,158,11,0.07); color: var(--accent-amber); }
+  .cookie-panel-header.set  { background: rgba(16,185,129,0.07); color: var(--accent-green); }
+  .cookie-panel-header.note { background: rgba(100,116,139,0.07); color: var(--muted); }
+  .cookie-panel-header.exp  { background: rgba(239,68,68,0.07); color: var(--accent-red); }
+  .cookie-row { display: grid; grid-template-columns: 260px 1fr auto; gap: 0 12px; padding: 7px 12px; border-bottom: 1px solid var(--border); font-family: 'JetBrains Mono', monospace; font-size: 0.67rem; align-items: start; line-height: 1.5; }
+  .cookie-row:last-child { border-bottom: none; }
+  .cookie-row:hover { background: rgba(255,255,255,0.02); }
+  .cookie-name { color: var(--text); font-weight: 600; word-break: break-all; }
+  .cookie-name.httponly { color: var(--accent-green); }
+  .cookie-name.jsread   { color: var(--accent-blue); }
+  .cookie-name.is-set   { color: var(--accent-cyan); }
+  .cookie-name.ext-is   { color: var(--accent-pink); }
+  .cookie-desc { color: var(--muted); font-size: 0.64rem; }
+  .cookie-flags { display: flex; flex-wrap: wrap; gap: 3px; justify-content: flex-end; }
+  .cookie-note { padding: 7px 12px; font-family: 'JetBrains Mono', monospace; font-size: 0.67rem; color: var(--muted); line-height: 1.6; }
+  .flag { font-size: 0.57rem; padding: 1px 5px; border-radius: 3px; border: 1px solid; white-space: nowrap; font-weight: 600; letter-spacing: 0.04em; }
+  .flag-ho   { color: var(--accent-green);  border-color: rgba(16,185,129,0.4);  background: rgba(16,185,129,0.08); }
+  .flag-sec  { color: var(--accent-blue);   border-color: rgba(59,130,246,0.4);  background: rgba(59,130,246,0.08); }
+  .flag-ses  { color: var(--accent-amber);  border-color: rgba(245,158,11,0.4);  background: rgba(245,158,11,0.08); }
+  .flag-exp  { color: var(--muted);         border-color: rgba(100,116,139,0.4); background: rgba(100,116,139,0.08); }
+  .flag-path { color: var(--accent-purple); border-color: rgba(139,92,246,0.4);  background: rgba(139,92,246,0.08); }
+  .flag-new  { color: #f472b6;              border-color: rgba(244,114,182,0.4); background: rgba(244,114,182,0.08); }
+  .flag-del  { color: var(--accent-red);    border-color: rgba(239,68,68,0.4);   background: rgba(239,68,68,0.08); }
+  .flag-9444 { color: var(--accent-pink);   border-color: rgba(236,72,153,0.4);  background: rgba(236,72,153,0.08); }
+
+  /* colors */
+  .c-blue   { color: var(--accent-blue);   border-color: var(--accent-blue); }
+  .c-cyan   { color: var(--accent-cyan);   border-color: var(--accent-cyan); }
+  .c-green  { color: var(--accent-green);  border-color: var(--accent-green); }
+  .c-amber  { color: var(--accent-amber);  border-color: var(--accent-amber); }
+  .c-purple { color: var(--accent-purple); border-color: var(--accent-purple); }
+  .c-pink   { color: var(--accent-pink);   border-color: var(--accent-pink); }
+  .c-teal   { color: var(--accent-teal);   border-color: var(--accent-teal); }
+  .bg-blue   { background: rgba(59,130,246,0.12); }
+  .bg-cyan   { background: rgba(6,182,212,0.12); }
+  .bg-green  { background: rgba(16,185,129,0.12); }
+  .bg-amber  { background: rgba(245,158,11,0.12); }
+  .bg-purple { background: rgba(139,92,246,0.12); }
+  .bg-pink   { background: rgba(236,72,153,0.12); }
+  .bg-teal   { background: rgba(20,184,166,0.12); }
+  .card.c-blue   { border-left-color: var(--accent-blue); }
+  .card.c-cyan   { border-left-color: var(--accent-cyan); }
+  .card.c-green  { border-left-color: var(--accent-green); }
+  .card.c-amber  { border-left-color: var(--accent-amber); }
+  .card.c-purple { border-left-color: var(--accent-purple); }
+  .card.c-pink   { border-left-color: var(--accent-pink); }
+  .card.c-teal   { border-left-color: var(--accent-teal); }
+  .tag-302 { background: rgba(245,158,11,0.15); color: var(--accent-amber); }
+  .tag-200 { background: rgba(16,185,129,0.15); color: var(--accent-green); }
+  .tag-post{ background: rgba(236,72,153,0.15); color: var(--accent-pink); }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <h1>WSO2 APIM Publisher — Federated SSO Login Flow</h1>
+    <p>Source: mpa.har · APIM <span style="color:var(--accent-blue)">:9443</span> (Embedded IS) federated via OIDC to External IS <span style="color:var(--accent-pink)">:9444</span> · click any step to expand</p>
+  </header>
+
+  <!-- Federation architecture banner -->
+  <div class="fed-banner">
+    <strong>🔗 Federated Architecture:</strong>&nbsp;
+    APIM Embedded IS <span class="port port-9443">:9443</span> acts as a <strong>Service Provider (SP)</strong> — it delegates authentication to an external Identity Provider.
+    The External WSO2 IS <span class="port port-9444">:9444</span> acts as the <strong>Identity Provider (IdP)</strong> — it authenticates the user and issues an OIDC code back to APIM.
+    APIM's embedded IS exchanges that code for user identity, then issues its own authorization code to the Publisher SPA.
+    <br>
+    <strong style="color:var(--accent-amber)">Key difference vs non-federated:</strong>&nbsp;
+    Step 4 triggers a second OAuth2 Authorization Code flow nested inside the first — browser traverses <strong>two</strong> /oauth2/authorize endpoints and <strong>two</strong> consent pages before tokens are issued.
+    The External IS also shows a <strong>consent screen</strong> (scope: openid) for the <em>wso2am</em> service provider.
+  </div>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:var(--accent-blue)"></div>Browser → APIM <span style="color:var(--accent-blue);margin-left:3px">:9443</span></div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--accent-pink)"></div>Browser → External IS <span style="color:var(--accent-pink);margin-left:3px">:9444</span></div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--accent-amber)"></div>APIM JSP internal calls</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--accent-green)"></div>Token exchange + cookies set</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--accent-purple)"></div>Post-login / introspection</div>
+    <div style="width:1px;background:var(--border);margin:0 4px"></div>
+    <div class="legend-item"><span class="flag flag-ho">HttpOnly</span> not readable by JS</div>
+    <div class="legend-item"><span class="flag flag-new">NEW</span> first time set</div>
+    <div class="legend-item"><span class="flag flag-del">DELETED</span> MaxAge=0 / expired</div>
+    <div class="legend-item"><span class="flag flag-9444">:9444</span> cookie scoped to External IS</div>
+    <div class="legend-item"><span style="font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:var(--accent-green);font-weight:600">green</span> = HttpOnly</div>
+    <div class="legend-item"><span style="font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:var(--accent-blue);font-weight:600">blue</span> = JS-readable</div>
+    <div class="legend-item"><span style="font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:var(--accent-pink);font-weight:600">pink</span> = External IS cookie</div>
+  </div>
+
+  <!-- Actors -->
+  <div class="actors">
+    <div class="actor" style="border-top-color:var(--accent-blue)">
+      <div class="icon">🌐</div>
+      <div class="label">Browser</div>
+      <div class="sublabel">User Agent</div>
+    </div>
+    <div class="actor" style="border-top-color:var(--accent-amber)">
+      <div class="icon">⚙️</div>
+      <div class="label">APIM Publisher</div>
+      <div class="sublabel">:9443 — idp.jsp<br>login_callback.jsp</div>
+    </div>
+    <div class="actor" style="border-top-color:var(--accent-cyan)">
+      <div class="icon">🔐</div>
+      <div class="label">Embedded IS</div>
+      <div class="sublabel">:9443 — SP role<br>delegates to :9444</div>
+    </div>
+    <div class="actor" style="border-top-color:var(--accent-pink)">
+      <div class="icon">🏛️</div>
+      <div class="label">External IS</div>
+      <div class="sublabel">:9444 — IdP role<br>authenticates user</div>
+    </div>
+    <div class="actor" style="border-top-color:var(--accent-purple)">
+      <div class="icon">🗄️</div>
+      <div class="label">Internal APIs</div>
+      <div class="sublabel">/api/am/publisher/v2<br>/client-registration · /oidc</div>
+    </div>
+  </div>
+
+  <!-- ===== FLOW ===== -->
+  <div class="flow">
+
+    <!-- Phase 1 -->
+    <div class="phase-label" style="color:var(--accent-blue)">Phase 1 · Initial Page Load</div>
+
+    <div class="step" onclick="toggle(this)">
+      <div class="num"><div class="num-circle c-blue bg-blue">1</div></div>
+      <div class="card c-blue">
+        <div class="card-header">
+          <span class="method-badge bg-blue c-blue">GET</span>
+          <span class="url"><span class="host-9443">https://localhost:9443</span>/publisher/apis</span>
+          <span class="status-badge tag-200">200 OK</span>
+          <span class="expand-hint"></span>
+        </div>
+        <div class="card-body">
+          <div class="detail-row">
+            <div class="detail-label">What happens</div>
+            <div class="detail-content">Browser requests the Publisher SPA shell. No auth check — returns HTML unconditionally. Triggers loading of CSS, fonts, JS bundles, portalSettings.js, and settings.js.</div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">Key assets fetched</div>
+            <div class="detail-content">main.css · draftjs.css · MaterialIcons.js · userThemes.js · portalSettings.js · settings.js · index.bundle.js · en.json</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step" onclick="toggle(this)">
+      <div class="num"><div class="num-circle c-blue bg-blue">2</div></div>
+      <div class="card c-blue">
+        <div class="card-header">
+          <span class="method-badge bg-blue c-blue">GET</span>
+          <span class="url"><span class="host-9443">https://localhost:9443</span>/publisher/services/settings/settings.js</span>
+          <span class="status-badge tag-200">200 OK</span>
+          <span class="expand-hint"></span>
+        </div>
+        <div class="card-body">
+          <div class="detail-row">
+            <div class="detail-label">Handled by</div>
+            <div class="detail-content">settings.jsp — reads settings.json, injects IDP origin + checkSessionEndpoint, writes <strong>const AppConfig = {...}</strong> as JavaScript</div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">Key output (AppConfig.idp)</div>
+            <div class="detail-content">origin: https://localhost:9443<br>checkSessionEndpoint: https://localhost:9443/oidc/checksession</div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">Note</div>
+            <div class="detail-content" style="color:var(--accent-amber)">Even in federated mode, checkSessionEndpoint points to :9443 (APIM embedded IS). The SPA monitors the APIM session — not the External IS session directly.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phase 2 -->
+    <div class="phase-label" style="color:var(--accent-amber)">Phase 2 · Login Initiation — idp.jsp (:9443)</div>
+
+    <div class="step" onclick="toggle(this)">
+      <div class="num"><div class="num-circle c-amber bg-amber">3</div></div>
+      <div class="card c-amber">
+        <div class="card-header">
+          <span class="method-badge bg-amber c-amber">GET</span>
+          <span class="url"><span class="host-9443">https://localhost:9443</span>/publisher/services/auth/login</span>
+          <span class="status-badge tag-302">302 Redirect</span>
+          <span class="expand-hint"></span>
+        </div>
+        <div class="card-body">
+          <div class="detail-row">
+            <div class="detail-label">Handled by</div>
+            <div class="detail-content">idp.jsp — same as non-federated flow. Checks/registers OAuth app, sets CLIENT_ID cookie, builds authorize URL</div>
+          </div>
+          <div class="internal-calls">
+            <div class="internal-calls-header">⬡ Server-side internal calls (loopback, all on :9443)</div>
+            <div class="internal-call"><span class="ic-arrow">→</span><div><span class="ic-desc">GET /api/am/publisher/v2/settings</span><span class="ic-url">Fetches full scope list (apim:admin apim:api_create … openid service_catalog:service_view service_catalog:service_write)</span></div></div>
+            <div class="internal-call"><span class="ic-arrow">→</span><div><span class="ic-desc">DB — SystemApplicationDAO.getClientCredentialsForApplication("apim_publisher", "carbon.super")</span><span class="ic-url">Looks up registered OAuth app client_id=5m8Z19FMy4jHnQdx_rbdUyhFyska. If not found → triggers DCR via POST /client-registration/v0.17/register</span></div></div>
+            <div class="internal-call"><span class="ic-arrow">→</span><div><span class="ic-desc">Sets CLIENT_ID cookie (JS-readable, session-scoped)</span><span class="ic-url">response.addCookie("CLIENT_ID", "5m8Z19FMy4jHnQdx_rbdUyhFyska") — path: /publisher/, maxAge: -1 (session)</span></div></div>
+            <div class="internal-call"><span class="ic-arrow" style="color:var(--accent-amber)">← 302</span><div><span class="ic-desc" style="color:var(--accent-amber)">Redirect → https://localhost:9443/oauth2/authorize</span><span class="ic-url">?response_type=code&amp;client_id=5m8Z19FMy4jHnQdx_rbdUyhFyska<br>&amp;scope=apim:admin apim:api_create … openid service_catalog:service_view service_catalog:service_write<br>&amp;state=/apis&amp;redirect_uri=https://localhost:9443/publisher/services/auth/callback/login</span></div></div>
+          </div>
+          <div class="cookie-panel">
+            <div class="cookie-panel-header sent">► cookies sent with request</div>
+            <div class="cookie-note">None — browser cookie jar is empty (first unauthenticated request)</div>
+          </div>
+          <div class="cookie-panel">
+            <div class="cookie-panel-header set">◄ cookies set by response</div>
+            <div class="cookie-row">
+              <div class="cookie-name jsread">CLIENT_ID <span class="flag flag-new">NEW</span></div>
+              <div class="cookie-desc">clientId of the registered apim_publisher OAuth app (5m8Z19FMy4jHnQdx_rbdUyhFyska)<br>Used by login_callback.jsp for the token exchange POST</div>
+              <div class="cookie-flags"><span class="flag flag-sec">Secure</span><span class="flag flag-ses">session</span><span class="flag flag-path">path:/publisher/</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phase 3 -->
+    <div class="phase-label" style="color:var(--accent-cyan)">Phase 3 · APIM Embedded IS (:9443) — INITIAL_REQUEST → Federated Redirect</div>
+
+    <div class="fed-boundary" style="background:rgba(6,182,212,0.05);border:1px solid rgba(6,182,212,0.2);border-left:3px solid var(--accent-cyan)">
+      <span style="color:var(--accent-cyan);font-weight:700;font-family:'JetBrains Mono',monospace;font-size:0.68rem;">OAuth2AuthzEndpoint.java (:9443)</span>
+      <span style="font-family:'JetBrains Mono',monospace;font-size:0.67rem;color:var(--muted)">Hit 1 — INITIAL_REQUEST state → no local auth → delegates to federation partner via OIDCAuthenticator → redirects browser to :9444</span>
+    </div>
+
+    <div class="step" onclick="toggle(this)">
+      <div class="num"><div class="num-circle c-cyan bg-cyan">4</div></div>
+      <div class="card c-cyan">
+        <div class="card-header">
+          <span class="method-badge bg-cyan c-cyan">GET</span>
+          <span class="url"><span class="host-9443">https://localhost:9443</span>/oauth2/authorize?response_type=code&amp;client_id=5m8Z19FMy4jHnQdx…&amp;scope=apim:admin…&amp;state=/apis&amp;redirect_uri=…/callback/login <span style="color:var(--muted);font-size:0.63rem">[Hit 1 · INITIAL_REQUEST]</span></span>
+          <span class="status-badge tag-302">302</span>
+          <span class="expand-hint"></span>
+        </div>
+        <div class="card-body">
+          <div class="detail-row">
+            <div class="detail-label">Class · OAuth2AuthzEndpoint.java (:9443) — INITIAL_REQUEST branch</div>
+            <div class="detail-content">No sessionDataKey → INITIAL_REQUEST state. validateClientInfo(), build OAuth2Parameters, generate sessionDataKey=74475e6f…, store in Hazelcast SessionDataCache.
+<br>handleAuthFlowThroughFramework() → DefaultRequestCoordinator: no commonAuthId cookie → no local SSO session → consults SP config → finds <strong>OIDCAuthenticator</strong> configured for :9444 IdP</div>
+          </div>
+          <div class="internal-calls">
+            <div class="internal-calls-header">⬡ Key internal steps — federation redirect decision</div>
+            <div class="internal-call"><span class="ic-arrow">1</span><div><span class="ic-desc">buildOAuthMessage() → state = INITIAL_REQUEST (no sessionDataKey in request)</span></div></div>
+            <div class="internal-call"><span class="ic-arrow">2</span><div><span class="ic-desc">validateClientInfo() — DB: IDN_OAUTH_CONSUMER_APPS, SP_APP, SP_INBOUND_AUTH</span><span class="ic-url">Reads saasApp=true, configured authenticator = OIDCAuthenticator (federated IdP: :9444)</span></div></div>
+            <div class="internal-call"><span class="ic-arrow">3</span><div><span class="ic-desc">sessionDataKey = UUID → 74475e6f-7875-4239-977e-bdd8c555f7f4</span><span class="ic-url">Stored in Hazelcast SessionDataCache with full OAuth2Parameters</span></div></div>
+            <div class="internal-call"><span class="ic-arrow">4</span><div><span class="ic-desc">OIDCAuthenticator.initiateAuthenticationRequest()</span><span class="ic-url">Builds redirect to :9444/oauth2/authorize with:<br>• response_type=code (nested OAuth2 Code flow)<br>• redirect_uri=https://localhost:9443/commonauth (APIM will receive the code)<br>• state=74475e6f…,OIDC (correlation ID to resume after federated auth)<br>• scope=openid (only openid needed — user identity claims)<br>• client_id=m9s3Cdy_frOPgYw62jrvvAGEiRIa (SP registered on :9444)</span></div></div>
+            <div class="internal-call"><span class="ic-arrow">5</span><div><span class="ic-desc">Sets sessionNonceCookie for CSRF protection during federated redirect</span><span class="ic-url">sessionNonceCookie-74475e6f-7875-4239-977e-bdd8c555f7f4 (HttpOnly, Secure, MaxAge=4800)</span></div></div>
+          </div>
+          <div class="cookie-panel">
+            <div class="cookie-panel-header sent">► cookies sent</div>
+            <div class="cookie-row"><div class="cookie-name jsread">CLIENT_ID</div><div class="cookie-desc">Set in step 3 — forwarded automatically</div><div class="cookie-flags"><span class="flag flag-sec">Secure</span><span class="flag flag-ses">session</span></div></div>
+          </div>
+          <div class="cookie-panel">
+            <div class="cookie-panel-header set">◄ cookies set by response</div>
+            <div class="cookie-row">
+              <div class="cookie-name is-set">sessionNonceCookie-74475e6f… <span class="flag flag-new">NEW</span></div>
+              <div class="cookie-desc">CSRF nonce for the federated OIDC redirect. Ties this browser session to the specific federation request. Verified when :9443/commonauth receives the callback from :9444</div>
+              <div class="cookie-flags"><span class="flag flag-ho">HttpOnly</span><span class="flag flag-sec">Secure</span><span class="flag flag-exp">MaxAge:4800</span></div>
+            </div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">Redirect target (to External IS)</div>
+            <div class="detail-content">https://localhost:9444/oauth2/authorize<br>?response_type=code<br>&amp;redirect_uri=https://localhost:9443/commonauth<br>&amp;state=74475e6f-7875-4239-977e-bdd8c555f7f4,OIDC<br>&amp;client_id=m9s3Cdy_frOPgYw62jrvvAGEiRIa<br>&amp;scope=openid</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phase 4: External IS -->
+    <div class="phase-label" style="color:var(--accent-pink)">Phase 4 · External IS (:9444) — Nested OAuth2 Authorization Code Flow</div>
+
+    <div class="fed-boundary" style="background:rgba(236,72,153,0.05);border:1px solid rgba(236,72,153,0.2);border-left:3px solid var(--accent-pink)">
+      <span style="color:var(--accent-pink);font-weight:700;font-family:'JetBrains Mono',monospace;font-size:0.68rem;">🏛️ External IS :9444</span>
+      <span style="font-family:'JetBrains Mono',monospace;font-size:0.67rem;color:var(--muted)">Steps 5–9 happen entirely on the External IS. Browser is redirected there and back. APIM's embedded IS (:9443) plays no part until step 10.</span>
+    </div>
+
+    <div class="step" onclick="toggle(this)">
+      <div class="num"><div class="num-circle c-pink bg-pink">5</div></div>
+      <div class="card c-pink">
+        <div class="card-header">
+          <span class="method-badge bg-pink c-pink">GET</span>
+          <span class="url"><span class="host-9444">https://localhost:9444</span>/oauth2/authorize?response_type=code&amp;redirect_uri=…/commonauth&amp;state=74475e6f…,OIDC&amp;client_id=m9s3Cdy…&amp;scope=openid</span>
+          <span class="status-badge tag-302">302</span>
+          <span class="expand-hint"></span>
+        </div>
+        <div class="card-body">
+          <div class="detail-row">
+            <div class="detail-label">Class · OAuth2AuthzEndpoint.java (:9444) — INITIAL_REQUEST</div>
+            <div class="detail-content">External IS receives the OIDC authorization request from APIM. SP client_id=m9s3Cdy… registered on :9444 as service provider "wso2am". No commonAuthId present → must authenticate user → redirects to login form.</div>
+          </div>
+          <div class="internal-calls">
+            <div class="internal-calls-header">⬡ :9444 internal processing</div>
+            <div class="internal-call"><span class="ic-arrow">1</span><div><span class="ic-desc">validateClientInfo() — validates client_id=m9s3Cdy… against :9444's IDN_OAUTH_CONSUMER_APPS</span><span class="ic-url">SP name: "wso2am" · redirect_uri=https://localhost:9443/commonauth → matches registered callback</span></div></div>
+            <div class="internal-call"><span class="ic-arrow">2</span><div><span class="ic-desc">sessionDataKey = abf71379-2291-4eab-a982-9034b1ca48df → stored in :9444 Hazelcast</span></div></div>
+            <div class="internal-call"><span class="ic-arrow">3</span><div><span class="ic-desc">handleAuthFlowThroughFramework() → DefaultRequestCoordinator</span><span class="ic-url">No commonAuthId cookie on :9444 → no SSO session → selects BasicAuthenticator:LOCAL → redirect to login form</span></div></div>
+          </div>
+          <div class="cookie-panel">
+            <div class="cookie-panel-header sent">► cookies sent to :9444</div>
+            <div class="cookie-row"><div class="cookie-name ext-is">sessionNonceCookie-74475e6f…</div><div class="cookie-desc">Set by :9443 in step 4 — browser forwards it to :9444 (same localhost, different port — cross-port but same-origin in browser)</div><div class="cookie-flags"><span class="flag flag-ho">HttpOnly</span><span class="flag flag-9444">:9444</span></div></div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">Redirect target</div>
+            <div class="detail-content">https://localhost:9444/authenticationendpoint/login.do<br>?client_id=m9s3Cdy_frOPgYw62jrvvAGEiRIa<br>&amp;commonAuthCallerPath=/oauth2/authorize<br>&amp;forceAuth=false&amp;passiveAuth=false<br>&amp;redirect_uri=https://localhost:9443/commonauth<br>&amp;state=74475e6f…,OIDC<br>&amp;sessionDataKey=abf71379-2291-4eab-a982-9034b1ca48df</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step" onclick="toggle(this)">
+      <div class="num"><div class="num-circle c-pink bg-pink">6</div></div>
+      <div class="card c-pink">
+        <div class="card-header">
+          <span class="method-badge bg-pink c-pink">GET</span>
+          <span class="url"><span class="host-9444">https://localhost:9444</span>/authenticationendpoint/login.do?client_id=m9s3Cdy…&amp;sessionDataKey=abf71379…</span>
+          <span class="status-badge tag-200">200 OK</span>
+          <span class="expand-hint"></span>
+        </div>
+        <div class="card-body">
+          <div class="detail-row">
+            <div class="detail-label">What happens</div>
+            <div class="detail-content">External IS renders the login form for BasicAuthenticator. Browser loads :9444 theme CSS, jQuery, Semantic UI. Two AJAX calls to :9444/logincontext (sessionDataKey=abf71379…) to check for existing :9444 SSO session.</div>
+          </div>
+          <div class="cookie-panel">
+            <div class="cookie-panel-header set">◄ cookies set by response (:9444)</div>
+            <div class="cookie-row">
+              <div class="cookie-name ext-is">JSESSIONID <span class="flag flag-new">NEW</span></div>
+              <div class="cookie-desc">:9444 Tomcat session — ties browser to the login form servlet session on the External IS</div>
+              <div class="cookie-flags"><span class="flag flag-ho">HttpOnly</span><span class="flag flag-9444">:9444</span><span class="flag flag-ses">session</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step" onclick="toggle(this)">
+      <div class="num"><div class="num-circle c-pink bg-pink">7</div></div>
+      <div class="card c-pink">
+        <div class="card-header">
+          <span class="method-badge bg-pink c-pink" style="font-size:0.6rem">POST</span>
+          <span class="url"><span class="host-9444">https://localhost:9444</span>/commonauth</span>
+          <span class="status-badge tag-302">302</span>
+          <span class="expand-hint"></span>
+        </div>
+        <div class="card-body">
+          <div class="detail-row">
+            <div class="detail-label">User action</div>
+            <div class="detail-content">User submits username + password on the :9444 login form</div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">Request body (form-encoded)</div>
+            <div class="detail-content">usernameUserInput=admin&amp;username=admin@carbon.super&amp;password=***&amp;sessionDataKey=abf71379-2291-4eab-a982-9034b1ca48df</div>
+          </div>
+          <div class="internal-calls">
+            <div class="internal-calls-header">⬡ :9444 BasicAuthenticator processing</div>
+            <div class="internal-call"><span class="ic-arrow">1</span><div><span class="ic-desc">BasicAuthenticator.process() — validates credentials against :9444 user store</span><span class="ic-url">admin@carbon.super authenticated → creates AuthenticatedUser{admin}</span></div></div>
+            <div class="internal-call"><span class="ic-arrow">2</span><div><span class="ic-desc">AuthenticationResultCache.addResult(sessionDataKey=95ea0153…, AuthnResult{admin})</span><span class="ic-url">New sessionDataKey generated for the post-auth redirect</span></div></div>
+            <div class="internal-call"><span class="ic-arrow">3</span><div><span class="ic-desc">commonAuthId cookie set on :9444 — establishes :9444 SSO session</span><span class="ic-url">SHA256(commonAuthId) → IDN_AUTH_SESSION_STORE on :9444. Enables SSO on :9444 for future logins.</span></div></div>
+          </div>
+          <div class="cookie-panel">
+            <div class="cookie-panel-header set">◄ cookies set by response (:9444)</div>
+            <div class="cookie-row">
+              <div class="cookie-name ext-is">pastr-abf71379… <span class="flag flag-new">NEW</span> → <span class="flag flag-del">DELETED</span></div>
+              <div class="cookie-desc">Anti-CSRF token — set then immediately expired (MaxAge=0). One-time use pattern.</div>
+              <div class="cookie-flags"><span class="flag flag-ho">HttpOnly</span><span class="flag flag-9444">:9444</span></div>
+            </div>
+            <div class="cookie-row">
+              <div class="cookie-name ext-is">commonAuthId <span class="flag flag-new">NEW</span></div>
+              <div class="cookie-desc">:9444 SSO session cookie — establishes authenticated session on the External IS. If user later opens another SP on :9444, this cookie enables SSO skip.</div>
+              <div class="cookie-flags"><span class="flag flag-ho">HttpOnly</span><span class="flag flag-sec">Secure</span><span class="flag flag-9444">:9444</span><span class="flag flag-ses">session</span></div>
+            </div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">Redirect target</div>
+            <div class="detail-content">https://localhost:9444/oauth2/authorize?sessionDataKey=95ea0153-40bc-44da-bea5-039e99de8dcd</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step" onclick="toggle(this)">
+      <div class="num"><div class="num-circle c-pink bg-pink">8</div></div>
+      <div class="card c-pink">
+        <div class="card-header">
+          <span class="method-badge bg-pink c-pink">GET</span>
+          <span class="url"><span class="host-9444">https://localhost:9444</span>/oauth2/authorize?sessionDataKey=95ea0153… <span style="color:var(--muted);font-size:0.63rem">[AUTHENTICATION_RESPONSE → consent]</span></span>
+          <span class="status-badge tag-302">302</span>
+          <span class="expand-hint"></span>
+        </div>
+        <div class="card-body">
+          <div class="detail-row">
+            <div class="detail-label">Class · OAuth2AuthzEndpoint.java (:9444) — AUTHENTICATION_RESPONSE state</div>
+            <div class="detail-content">sessionDataKey present + AuthnResult in cache. Consent NOT skipped for this SP on :9444 (saasApp setting differs, or first-time login). Redirects to oauth2_consent.do to get user approval for scope=openid.</div>
+          </div>
+          <div class="internal-calls">
+            <div class="internal-calls-header">⬡ :9444 post-auth processing</div>
+            <div class="internal-call"><span class="ic-arrow">1</span><div><span class="ic-desc">Restore OAuth2Parameters from :9444 SessionDataCache (sessionDataKey=95ea0153…)</span></div></div>
+            <div class="internal-call"><span class="ic-arrow">2</span><div><span class="ic-desc">Get AuthnResult from :9444 AuthnResultCache → remove (single-use)</span><span class="ic-url">{authenticated=true, subject=admin@carbon.super, authenticatedIdPs=[BasicAuthenticator]}</span></div></div>
+            <div class="internal-call"><span class="ic-arrow">3</span><div><span class="ic-desc">Consent check: NOT skipped — redirects to oauth2_consent.do</span><span class="ic-url">SP "wso2am" does not have skip consent configured, or first-time approval needed<br>sessionDataKeyConsent=1ccaa7b6-2322-4a20-b9fe-a8f9ba71ced8 generated</span></div></div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">Redirect target — consent page</div>
+            <div class="detail-content">https://localhost:9444/authenticationendpoint/oauth2_consent.do<br>?application=wso2am&amp;tenantDomain=carbon.super&amp;scope=openid<br>&amp;sessionDataKeyConsent=1ccaa7b6-2322-4a20-b9fe-a8f9ba71ced8<br>&amp;session_state=0d3487b8…</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step" onclick="toggle(this)">
+      <div class="num"><div class="num-circle c-pink bg-pink">9</div></div>
+      <div class="card c-pink">
+        <div class="card-header">
+          <span class="method-badge bg-pink c-pink">GET</span>
+          <span class="url"><span class="host-9444">https://localhost:9444</span>/authenticationendpoint/oauth2_consent.do?application=wso2am&amp;scope=openid&amp;sessionDataKeyConsent=1ccaa7b6…</span>
+          <span class="status-badge tag-200">200 OK</span>
+          <span class="expand-hint"></span>
+        </div>
+        <div class="card-body">
+          <div class="detail-row">
+            <div class="detail-label">What happens</div>
+            <div class="detail-content">External IS renders the consent page asking the user to approve sharing their openid identity with the "wso2am" service provider (APIM). User must click "Approve".</div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">Key parameters visible on consent page</div>
+            <div class="detail-content">application=wso2am · scope=openid · tenantDomain=carbon.super<br>sessionDataKeyConsent=1ccaa7b6-2322-4a20-b9fe-a8f9ba71ced8<br>session_state=0d3487b8a9774bee…</div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">⚠️ Key difference vs non-federated</div>
+            <div class="detail-content" style="color:var(--accent-amber)">This consent screen does NOT exist in the non-federated flow. It is shown by the External IS (:9444) to get user approval before issuing the OIDC code to APIM's embedded IS (:9443). If the user has already approved once and the SP is configured to skip repeat consent, this page is bypassed on subsequent logins.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step" onclick="toggle(this)">
+      <div class="num"><div class="num-circle c-pink bg-pink">10</div></div>
+      <div class="card c-pink">
+        <div class="card-header">
+          <span class="method-badge bg-pink c-pink" style="font-size:0.6rem">POST</span>
+          <span class="url"><span class="host-9444">https://localhost:9444</span>/oauth2/authorize <span style="color:var(--muted);font-size:0.63rem">[consent approval — issues code to :9443/commonauth]</span></span>
+          <span class="status-badge tag-302">302</span>
+          <span class="expand-hint"></span>
+        </div>
+        <div class="card-body">
+          <div class="detail-row">
+            <div class="detail-label">User action</div>
+            <div class="detail-content">User clicks "Approve" on the consent page</div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">Request body</div>
+            <div class="detail-content">scope-approval=approve&amp;sessionDataKeyConsent=1ccaa7b6-2322-4a20-b9fe-a8f9ba71ced8&amp;consent=approve</div>
+          </div>
+          <div class="internal-calls">
+            <div class="internal-calls-header">⬡ :9444 — issues OIDC authorization code to APIM</div>
+            <div class="internal-call"><span class="ic-arrow">1</span><div><span class="ic-desc">handleUserConsent(APPROVE) → CodeResponseTypeHandler.issue() on :9444</span><span class="ic-url">authCode = f1cdf2a8-0951-38c9-8d16-ac90d82f021c<br>DB INSERT: IDN_OAUTH2_AUTHORIZATION_CODE on :9444<br>AuthorizationGrantCache entry keyed by code on :9444</span></div></div>
+            <div class="internal-call"><span class="ic-arrow">2</span><div><span class="ic-desc">manageOIDCSessionState() on :9444 → sets opbs cookie, computes session_state</span><span class="ic-url">session_state=46e4407b25c7bc052eeecb67db0480…</span></div></div>
+            <div class="internal-call"><span class="ic-arrow" style="color:var(--accent-pink)">← 302</span><div><span class="ic-desc" style="color:var(--accent-pink)">Redirect → https://localhost:9443/commonauth (APIM's federation callback)</span><span class="ic-url">?code=f1cdf2a8-0951-38c9-8d16-ac90d82f021c<br>&amp;session_state=46e4407b…<br>&amp;state=74475e6f-7875-4239-977e-bdd8c555f7f4,OIDC</span></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phase 5 -->
+    <div class="phase-label" style="color:var(--accent-teal)">Phase 5 · APIM Embedded IS (:9443) — Federation Callback + Resume</div>
+
+    <div class="fed-boundary" style="background:rgba(20,184,166,0.05);border:1px solid rgba(20,184,166,0.2);border-left:3px solid var(--accent-teal)">
+      <span style="color:var(--accent-teal);font-weight:700;font-family:'JetBrains Mono',monospace;font-size:0.68rem;">Back on :9443</span>
+      <span style="font-family:'JetBrains Mono',monospace;font-size:0.67rem;color:var(--muted)">APIM's /commonauth receives the OIDC code from :9444, exchanges it for tokens, extracts user identity, then resumes the original Publisher OAuth2 flow and issues its own authorization code.</span>
+    </div>
+
+    <div class="step" onclick="toggle(this)">
+      <div class="num"><div class="num-circle c-teal bg-teal">11</div></div>
+      <div class="card c-teal">
+        <div class="card-header">
+          <span class="method-badge bg-teal c-teal">GET</span>
+          <span class="url"><span class="host-9443">https://localhost:9443</span>/commonauth?code=f1cdf2a8…&amp;session_state=46e4407b…&amp;state=74475e6f…,OIDC</span>
+          <span class="status-badge tag-302">302</span>
+          <span class="expand-hint"></span>
+        </div>
+        <div class="card-body">
+          <div class="detail-row">
+            <div class="detail-label">Federation callback — OIDCAuthenticator.processAuthenticationResponse()</div>
+            <div class="detail-content">APIM's /commonauth receives the authorization code from :9444. OIDCAuthenticator validates the state parameter (74475e6f… matches the sessionNonceCookie), then exchanges the code for tokens via a back-channel POST to :9444/oauth2/token.</div>
+          </div>
+          <div class="internal-calls">
+            <div class="internal-calls-header">⬡ :9443 OIDCAuthenticator back-channel calls to :9444</div>
+            <div class="internal-call"><span class="ic-arrow">1</span><div><span class="ic-desc">Validate state + nonce: state=74475e6f… matches sessionNonceCookie → OK</span></div></div>
+            <div class="internal-call"><span class="ic-arrow">2</span><div><span class="ic-desc">POST https://localhost:9444/oauth2/token (back-channel, not browser)</span><span class="ic-url">grant_type=authorization_code&amp;code=f1cdf2a8…&amp;redirect_uri=https://localhost:9443/commonauth<br>Authorization: Basic base64(m9s3Cdy…:clientSecret)<br>→ Returns: access_token, id_token, refresh_token for user admin@carbon.super</span></div></div>
+            <div class="internal-call"><span class="ic-arrow">3</span><div><span class="ic-desc">Parse id_token JWT → extract sub=admin, email, groups, AMR claims</span><span class="ic-url">Maps federated user identity to local user in :9443 user store (JIT provisioning if configured)</span></div></div>
+            <div class="internal-call"><span class="ic-arrow">4</span><div><span class="ic-desc">AuthenticationResultCache.addResult(sessionDataKey=5c1e179e…, AuthnResult{admin@carbon.super, idp=:9444})</span><span class="ic-url">Resumes the original :9443 OAuth2 flow. sessionDataKey correlates back to the original Publisher request.</span></div></div>
+            <div class="internal-call"><span class="ic-arrow">5</span><div><span class="ic-desc">Sets commonAuthId on :9443 — establishes APIM-level SSO session</span><span class="ic-url">SHA256(commonAuthId=0b8eb0b5…) stored in IDN_AUTH_SESSION_STORE on :9443<br>This is the cookie that enables future SSO logins to APIM without re-authenticating to :9444</span></div></div>
+          </div>
+          <div class="cookie-panel">
+            <div class="cookie-panel-header set">◄ cookies set by response (:9443)</div>
+            <div class="cookie-row">
+              <div class="cookie-name ext-is">pastr-74475e6f… <span class="flag flag-new">NEW</span> → <span class="flag flag-del">DELETED</span></div>
+              <div class="cookie-desc">Anti-CSRF token — set then immediately expired (MaxAge=0). Validates the federation callback was not replayed.</div>
+              <div class="cookie-flags"><span class="flag flag-ho">HttpOnly</span><span class="flag flag-sec">Secure</span></div>
+            </div>
+            <div class="cookie-row">
+              <div class="cookie-name ext-is">sessionNonceCookie-74475e6f… → <span class="flag flag-del">DELETED</span></div>
+              <div class="cookie-desc">CSRF nonce from step 4 — expired (MaxAge=0) now that federation callback was validated</div>
+              <div class="cookie-flags"><span class="flag flag-del">DELETED</span></div>
+            </div>
+            <div class="cookie-row">
+              <div class="cookie-name is-set">commonAuthId <span class="flag flag-new">NEW</span></div>
+              <div class="cookie-desc">APIM embedded IS SSO session (0b8eb0b5…). Enables future APIM logins without going through :9444 again — the embedded IS has a federated session record.</div>
+              <div class="cookie-flags"><span class="flag flag-ho">HttpOnly</span><span class="flag flag-sec">Secure</span><span class="flag flag-path">path:/</span><span class="flag flag-ses">session</span></div>
+            </div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">Redirect target — resume original :9443 OAuth2 flow</div>
+            <div class="detail-content">https://localhost:9443/oauth2/authorize?sessionDataKey=5c1e179e-0f94-45e2-8c5b-c068e0ffe1f9</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step" onclick="toggle(this)">
+      <div class="num"><div class="num-circle c-teal bg-teal">12</div></div>
+      <div class="card c-teal">
+        <div class="card-header">
+          <span class="method-badge bg-teal c-teal">GET</span>
+          <span class="url"><span class="host-9443">https://localhost:9443</span>/oauth2/authorize?sessionDataKey=5c1e179e… <span style="color:var(--muted);font-size:0.63rem">[Hit 2 · AUTHENTICATION_RESPONSE]</span></span>
+          <span class="status-badge tag-302">302</span>
+          <span class="expand-hint"></span>
+        </div>
+        <div class="card-body">
+          <div class="detail-row">
+            <div class="detail-label">Class · OAuth2AuthzEndpoint.java (:9443) — AUTHENTICATION_RESPONSE</div>
+            <div class="detail-content">Same authorize() method, second hit. sessionDataKey=5c1e179e present + AuthnResult waiting in :9443 AuthnResultCache (populated in step 11). Resumes original Publisher OAuth2 flow.</div>
+          </div>
+          <div class="internal-calls">
+            <div class="internal-calls-header">⬡ :9443 — issues Publisher authorization code</div>
+            <div class="internal-call"><span class="ic-arrow">1</span><div><span class="ic-desc">Restore OAuth2Parameters from :9443 SessionDataCache (original client_id=5m8Z19FMy4…, scope=apim:admin…)</span></div></div>
+            <div class="internal-call"><span class="ic-arrow">2</span><div><span class="ic-desc">Get AuthnResult from :9443 AuthnResultCache → remove (single-use)</span><span class="ic-url">{authenticated=true, subject=admin@carbon.super, authenticatedIdPs=[OIDCAuthenticator/:9444]}</span></div></div>
+            <div class="internal-call"><span class="ic-arrow">3</span><div><span class="ic-desc">Consent: SKIPPED — SP saasApp=true for apim_publisher</span><span class="ic-url">handleUserConsent(APPROVE) called directly</span></div></div>
+            <div class="internal-call"><span class="ic-arrow">4</span><div><span class="ic-desc">Scope validation: IDN_OAUTH2_SCOPE + IDN_OAUTH2_SCOPE_BINDING</span><span class="ic-url">All apim:* scopes validated for federated user admin@carbon.super</span></div></div>
+            <div class="internal-call"><span class="ic-arrow">5</span><div><span class="ic-desc">CodeResponseTypeHandler.issue() — Publisher authCode generated</span><span class="ic-url">authCode = a2f01945-7c0a-324a-9bce-ad06efa95c9e<br>DB INSERT: IDN_OAUTH2_AUTHORIZATION_CODE on :9443<br>AuthorizationGrantCache.addToCacheByCode(code → {userAttributes, authTime, amr=[OIDCAuthenticator]})</span></div></div>
+            <div class="internal-call"><span class="ic-arrow">6</span><div><span class="ic-desc">manageOIDCSessionState() → opbs cookie + session_state</span><span class="ic-url">Sets opbs=c950bad1… (OIDC browser state for :9443)<br>session_state=3d00688aef6714a26d…</span></div></div>
+          </div>
+          <div class="cookie-panel">
+            <div class="cookie-panel-header set">◄ cookies set by response (:9443)</div>
+            <div class="cookie-row">
+              <div class="cookie-name is-set">opbs <span class="flag flag-new">NEW</span></div>
+              <div class="cookie-desc">OIDC browser state for :9443. Used to compute session_state hash for the /oidc/checksession iframe</div>
+              <div class="cookie-flags"><span class="flag flag-sec">Secure</span><span class="flag flag-path">path:/</span><span class="flag flag-ses">session</span></div>
+            </div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">Redirect target — Publisher callback</div>
+            <div class="detail-content">https://localhost:9443/publisher/services/auth/callback/login<br>?code=a2f01945-7c0a-324a-9bce-ad06efa95c9e<br>&amp;state=/apis<br>&amp;session_state=3d00688aef6714a26d92136ce9412eca68c582f01b1e271abbb6a92d28b91cf9.BQyjRYVE2Rnv8BYbMp1dDw</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phase 6 -->
+    <div class="phase-label" style="color:var(--accent-green)">Phase 6 · Token Exchange — login_callback.jsp (:9443)</div>
+
+    <div class="step" onclick="toggle(this)">
+      <div class="num"><div class="num-circle c-green bg-green">13</div></div>
+      <div class="card c-green">
+        <div class="card-header">
+          <span class="method-badge bg-green c-green">GET</span>
+          <span class="url"><span class="host-9443">https://localhost:9443</span>/publisher/services/auth/callback/login?code=a2f01945…&amp;state=/apis&amp;session_state=3d00688aef…</span>
+          <span class="status-badge tag-302">302 → /publisher/apis</span>
+          <span class="expand-hint"></span>
+        </div>
+        <div class="card-body">
+          <div class="detail-row">
+            <div class="detail-label">Handled by</div>
+            <div class="detail-content">login_callback.jsp — identical to non-federated flow from this point. Exchanges the :9443 authorization code for tokens.</div>
+          </div>
+          <div class="internal-calls">
+            <div class="internal-calls-header">⬡ Server-side calls (all loopback on :9443)</div>
+            <div class="internal-call"><span class="ic-arrow">→</span><div><span class="ic-desc">DB — SystemApplicationDAO.getClientCredentialsForApplication("apim_publisher", "carbon.super")</span><span class="ic-url">Retrieves client_id=5m8Z19FMy4… + clientSecret for Basic auth header</span></div></div>
+            <div class="internal-call"><span class="ic-arrow">→</span><div><span class="ic-desc">POST https://localhost:9443/oauth2/token (loopback)</span><span class="ic-url">grant_type=authorization_code&amp;code=a2f01945…<br>redirect_uri=https://localhost:9443/publisher/services/auth/callback/login<br>Authorization: Basic base64(5m8Z19FMy4…:clientSecret)</span></div></div>
+            <div class="internal-call"><span class="ic-arrow">←</span><div><span class="ic-desc">Token response: access_token, refresh_token, id_token, expires_in=3538</span><span class="ic-url">Tokens split into P1 (JS-readable) + P2 (HttpOnly) for XSS mitigation — same split strategy as non-federated flow</span></div></div>
+          </div>
+          <div class="cookie-panel">
+            <div class="cookie-panel-header sent">► cookies sent with request</div>
+            <div class="cookie-row"><div class="cookie-name jsread">CLIENT_ID</div><div class="cookie-desc">Set in step 3 — still present</div><div class="cookie-flags"><span class="flag flag-sec">Secure</span><span class="flag flag-ses">session</span></div></div>
+            <div class="cookie-row"><div class="cookie-name is-set">commonAuthId</div><div class="cookie-desc">APIM SSO session set in step 11 — forwarded on all :9443 requests</div><div class="cookie-flags"><span class="flag flag-ho">HttpOnly</span><span class="flag flag-sec">Secure</span></div></div>
+            <div class="cookie-row"><div class="cookie-name is-set">opbs</div><div class="cookie-desc">OIDC browser state set in step 12</div><div class="cookie-flags"><span class="flag flag-sec">Secure</span></div></div>
+          </div>
+          <div class="cookie-panel">
+            <div class="cookie-panel-header set">◄ 9 split-token cookies set by login_callback.jsp</div>
+            <div class="cookie-row">
+              <div class="cookie-name httponly">AM_ACC_TOKEN_DEFAULT_P2 <span class="flag flag-new">NEW</span></div>
+              <div class="cookie-desc">Access token P2 (HttpOnly) — set 3× for paths: /publisher/, /api/am/publisher/, /api/am/service-catalog/v0/</div>
+              <div class="cookie-flags"><span class="flag flag-ho">HttpOnly</span><span class="flag flag-sec">Secure</span><span class="flag flag-exp">MaxAge:3538</span></div>
+            </div>
+            <div class="cookie-row">
+              <div class="cookie-name jsread">WSO2_AM_TOKEN_1_Default <span class="flag flag-new">NEW</span></div>
+              <div class="cookie-desc">Access token P1 — JS-readable. SPA reads this to detect login state. Server reassembles P1+P2 in introspect.jsp / refresh.jsp</div>
+              <div class="cookie-flags"><span class="flag flag-sec">Secure</span><span class="flag flag-path">path:/publisher/</span><span class="flag flag-exp">MaxAge:3538</span></div>
+            </div>
+            <div class="cookie-row">
+              <div class="cookie-name httponly">AM_REF_TOKEN_DEFAULT_P2 <span class="flag flag-new">NEW</span></div>
+              <div class="cookie-desc">Refresh token P2 (HttpOnly) — refresh.jsp reads this + P1 to call /oauth2/token with grant_type=refresh_token</div>
+              <div class="cookie-flags"><span class="flag flag-ho">HttpOnly</span><span class="flag flag-sec">Secure</span><span class="flag flag-path">path:/publisher/</span><span class="flag flag-exp">MaxAge:86400</span></div>
+            </div>
+            <div class="cookie-row">
+              <div class="cookie-name jsread">WSO2_AM_REFRESH_TOKEN_1_Default <span class="flag flag-new">NEW</span></div>
+              <div class="cookie-desc">Refresh token P1 — JS-readable. Sent as body param to /publisher/services/auth/refresh</div>
+              <div class="cookie-flags"><span class="flag flag-sec">Secure</span><span class="flag flag-path">path:/publisher/</span><span class="flag flag-exp">MaxAge:86400</span></div>
+            </div>
+            <div class="cookie-row">
+              <div class="cookie-name jsread">AM_ID_TOKEN_DEFAULT_P1 + P2 <span class="flag flag-new">NEW</span></div>
+              <div class="cookie-desc">ID token split — both parts scoped to /publisher/services/logout. logout.jsp reassembles for id_token_hint param in OIDC logout</div>
+              <div class="cookie-flags"><span class="flag flag-sec">Secure</span><span class="flag flag-path">path:/publisher/services/logout</span><span class="flag flag-exp">MaxAge:3538</span></div>
+            </div>
+            <div class="cookie-row">
+              <div class="cookie-name jsread">publisher_session_state <span class="flag flag-new">NEW</span></div>
+              <div class="cookie-desc">OIDC session_state from :9443 (3d00688aef…). SPA uses this in /oidc/checksession iframe to detect SSO logout</div>
+              <div class="cookie-flags"><span class="flag flag-sec">Secure</span><span class="flag flag-path">path:/publisher/</span><span class="flag flag-ses">session</span></div>
+            </div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">Final redirect</div>
+            <div class="detail-content">response.sendRedirect("/publisher/apis") → https://localhost:9443/publisher/apis</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phase 7 -->
+    <div class="phase-label" style="color:var(--accent-purple)">Phase 7 · Authenticated App Load + Introspection</div>
+
+    <div class="step" onclick="toggle(this)">
+      <div class="num"><div class="num-circle c-purple bg-purple">14</div></div>
+      <div class="card c-purple">
+        <div class="card-header">
+          <span class="method-badge bg-purple c-purple">GET</span>
+          <span class="url"><span class="host-9443">https://localhost:9443</span>/publisher/apis</span>
+          <span class="status-badge tag-200">200 OK</span>
+          <span class="expand-hint"></span>
+        </div>
+        <div class="card-body">
+          <div class="detail-row">
+            <div class="detail-label">What happens</div>
+            <div class="detail-content">Browser reloads the Publisher SPA with all 9 auth cookies now set. JS bundles, CSS, locales, and portalSettings.js are fetched. SPA boots, runs componentDidMount(), finds WSO2_AM_TOKEN_1_Default cookie → proceeds to introspect.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step" onclick="toggle(this)">
+      <div class="num"><div class="num-circle c-purple bg-purple">15</div></div>
+      <div class="card c-purple">
+        <div class="card-header">
+          <span class="method-badge bg-purple c-purple">GET</span>
+          <span class="url"><span class="host-9443">https://localhost:9443</span>/publisher/services/auth/introspect</span>
+          <span class="status-badge tag-200">200 OK</span>
+          <span class="expand-hint"></span>
+        </div>
+        <div class="card-body">
+          <div class="detail-row">
+            <div class="detail-label">Handled by</div>
+            <div class="detail-content">introspect.jsp — SPA calls this to validate the session and get user identity. Identical to non-federated flow from this point.</div>
+          </div>
+          <div class="internal-calls">
+            <div class="internal-calls-header">⬡ Server-side calls</div>
+            <div class="internal-call"><span class="ic-arrow">→</span><div><span class="ic-desc">Read WSO2_AM_TOKEN_1_Default (P1) + AM_ACC_TOKEN_DEFAULT_P2 (P2) from cookies</span><span class="ic-url">Reassemble full access_token = P1 + P2</span></div></div>
+            <div class="internal-call"><span class="ic-arrow">→</span><div><span class="ic-desc">POST https://localhost:9443/oauth2/introspect (loopback)</span><span class="ic-url">token={access_token} · Authorization: Basic base64(admin:admin)<br>→ Returns: {active:true, scope, username:admin@carbon.super, exp, client_id, token_type}</span></div></div>
+            <div class="internal-call"><span class="ic-arrow">←</span><div><span class="ic-desc">Returns JSON to SPA: {active:true, username:admin@carbon.super, scope:apim:admin…}</span><span class="ic-url">SPA builds User object → AuthManager.setUser(user) → renders Publisher dashboard ✓</span></div></div>
+          </div>
+          <div class="cookie-panel">
+            <div class="cookie-panel-header sent">► cookies sent (auto by browser)</div>
+            <div class="cookie-row"><div class="cookie-name jsread">WSO2_AM_TOKEN_1_Default</div><div class="cookie-desc">P1 — JS-readable, introspect.jsp reads from request.getCookies()</div><div class="cookie-flags"><span class="flag flag-sec">Secure</span><span class="flag flag-path">path:/publisher/</span></div></div>
+            <div class="cookie-row"><div class="cookie-name httponly">AM_ACC_TOKEN_DEFAULT_P2</div><div class="cookie-desc">P2 — HttpOnly, browser sends automatically. JS cannot read — this is the XSS security boundary</div><div class="cookie-flags"><span class="flag flag-ho">HttpOnly</span><span class="flag flag-sec">Secure</span></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step" onclick="toggle(this)">
+      <div class="num"><div class="num-circle c-purple bg-purple">16</div></div>
+      <div class="card c-purple">
+        <div class="card-header">
+          <span class="method-badge bg-purple c-purple">GET</span>
+          <span class="url"><span class="host-9443">https://localhost:9443</span>/oidc/checksession?client_id=5m8Z19FMy4…&amp;redirect_uri=…/callback/login</span>
+          <span class="status-badge tag-200">200 OK</span>
+          <span class="expand-hint"></span>
+        </div>
+        <div class="card-body">
+          <div class="detail-row">
+            <div class="detail-label">Purpose</div>
+            <div class="detail-content">SPA loads the OIDC session check iframe (from AppConfig.idp.checkSessionEndpoint). Monitors the :9443 APIM session state — detects if the user logs out in another tab or if the APIM session expires. Note: this monitors :9443, not :9444 directly.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step" onclick="toggle(this)">
+      <div class="num"><div class="num-circle c-purple bg-purple">17</div></div>
+      <div class="card c-purple">
+        <div class="card-header">
+          <span class="method-badge bg-purple c-purple">GET</span>
+          <span class="url"><span class="host-9443">https://localhost:9443</span>/api/am/publisher/v2/apis?limit=10&amp;offset=0</span>
+          <span class="status-badge tag-200">200 OK</span>
+          <span class="expand-hint"></span>
+        </div>
+        <div class="card-body">
+          <div class="detail-row">
+            <div class="detail-label">What happens</div>
+            <div class="detail-content">First authenticated API call. Browser sends AM_ACC_TOKEN_DEFAULT_P2 (HttpOnly) automatically. APIM gateway reassembles token from split cookies and validates it. Login flow complete — Publisher dashboard renders with API list.</div>
+          </div>
+          <div class="cookie-panel">
+            <div class="cookie-panel-header sent">► cookies sent (browser → APIM gateway)</div>
+            <div class="cookie-row"><div class="cookie-name httponly">AM_ACC_TOKEN_DEFAULT_P2</div><div class="cookie-desc">P2 — sent to /api/am/publisher/ path (path-scoped). Gateway combines P1+P2 to reconstruct bearer token</div><div class="cookie-flags"><span class="flag flag-ho">HttpOnly</span><span class="flag flag-sec">Secure</span><span class="flag flag-path">path:/api/am/publisher/</span></div></div>
+            <div class="cookie-row"><div class="cookie-name jsread">WSO2_AM_TOKEN_1_Default</div><div class="cookie-desc">P1 — sent to /publisher/ path. Combined with HttpOnly P2 for full bearer token</div><div class="cookie-flags"><span class="flag flag-sec">Secure</span><span class="flag flag-path">path:/publisher/</span></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- .flow -->
+
+  <!-- Summary boxes -->
+  <div style="margin-top:48px;background:var(--panel);border:1px solid rgba(236,72,153,0.3);border-radius:12px;padding:22px 26px;">
+    <div style="font-weight:700;font-size:0.95rem;margin-bottom:14px;background:linear-gradient(135deg,#ec4899,#8b5cf6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">Federated vs Non-Federated — Key Differences</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+      <div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:0.63rem;font-weight:700;letter-spacing:0.08em;color:var(--accent-blue);margin-bottom:10px;">NON-FEDERATED (logintrace.har)</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:0.67rem;color:var(--muted);line-height:2;">
+          <span style="color:var(--text)">Actors:</span> Browser + APIM(:9443 only)<br>
+          <span style="color:var(--text)">Steps 4–7:</span> Embedded IS handles auth (BasicAuthenticator)<br>
+          <span style="color:var(--text)">Consent:</span> Skipped (saasApp=true)<br>
+          <span style="color:var(--text)">Redirects:</span> 4 (login→IS→commonauth→IS→callback)<br>
+          <span style="color:var(--text)">Cookies during auth:</span> commonAuthId set on :9443 only<br>
+          <span style="color:var(--text)">/oauth2/authorize calls:</span> 2 (Hit 1 + Hit 2)
+        </div>
+      </div>
+      <div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:0.63rem;font-weight:700;letter-spacing:0.08em;color:var(--accent-pink);margin-bottom:10px;">FEDERATED (mpa.har) — this diagram</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:0.67rem;color:var(--muted);line-height:2;">
+          <span style="color:var(--text)">Actors:</span> Browser + APIM(:9443) + External IS(:9444)<br>
+          <span style="color:var(--text)">Steps 5–10:</span> External IS authenticates (OIDCAuthenticator delegates to :9444)<br>
+          <span style="color:var(--text)">Consent:</span> Shown on :9444 for scope=openid (wso2am SP)<br>
+          <span style="color:var(--text)">Redirects:</span> 8+ (nested OAuth2 Code flow)<br>
+          <span style="color:var(--text)">Cookies during auth:</span> commonAuthId on :9444 AND :9443 (two sessions)<br>
+          <span style="color:var(--text)">/oauth2/authorize calls:</span> 4 (2 on :9443 + 2 on :9444)<br>
+          <span style="color:var(--text)">Back-channel token exchange:</span> :9443 → :9444 /oauth2/token (hidden from browser)
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Token split -->
+  <div style="margin-top:14px;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:20px 24px;">
+    <div style="font-weight:700;font-size:0.9rem;margin-bottom:12px;color:var(--accent-cyan)">Token Split Strategy — XSS Mitigation (same as non-federated)</div>
+    <div style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:var(--muted);line-height:1.9;">
+      access_token  = <span style="color:var(--accent-blue)">WSO2_AM_TOKEN_1_Default (P1)</span> + <span style="color:var(--accent-green)">AM_ACC_TOKEN_DEFAULT_P2 (P2, HttpOnly)</span><br>
+      refresh_token = <span style="color:var(--accent-amber)">WSO2_AM_REFRESH_TOKEN_1_Default (P1)</span> + <span style="color:var(--accent-amber)">AM_REF_TOKEN_DEFAULT_P2 (P2, HttpOnly)</span><br>
+      id_token      = <span style="color:var(--accent-purple)">AM_ID_TOKEN_DEFAULT_P1</span> + <span style="color:var(--accent-purple)">AM_ID_TOKEN_DEFAULT_P2</span> (both path: /publisher/services/logout)<br><br>
+      <span style="color:var(--text)">Neither half alone is a valid token. XSS can read P1 but cannot use it without P2 (HttpOnly). login_callback.jsp, introspect.jsp, refresh.jsp always reassemble P1+P2 server-side.</span>
+    </div>
+  </div>
+
+  <!-- DB + Cache -->
+  <div style="margin-top:14px;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:20px 24px;">
+    <div style="font-weight:700;font-size:0.9rem;margin-bottom:14px;color:var(--accent-amber)">IS Internal — Key DB Tables &amp; Hazelcast Caches (two IS instances)</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+      <div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:0.63rem;font-weight:700;letter-spacing:0.08em;color:var(--accent-blue);margin-bottom:8px;">:9443 APIM EMBEDDED IS</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:0.67rem;color:var(--muted);line-height:2;">
+          <span style="color:var(--text)">SessionDataCache [Hazelcast]</span> — OAuth2Parameters for 74475e6f… and 5c1e179e…<br>
+          <span style="color:var(--text)">AuthnResultCache [Hazelcast]</span> — AuthnResult{admin, idp=:9444} keyed by 5c1e179e…<br>
+          <span style="color:var(--text)">AuthorizationGrantCache [Hazelcast]</span> — keyed by code a2f01945…<br>
+          <span style="color:var(--text)">IDN_OAUTH2_AUTHORIZATION_CODE</span> — code a2f01945… (Publisher code)<br>
+          <span style="color:var(--text)">IDN_AUTH_SESSION_STORE</span> — SHA256(commonAuthId=0b8eb0b5…)<br>
+          <span style="color:var(--text)">IDN_OIDC_SESSION_STATE</span> — opbs=c950bad1… + session_state 3d00688aef…
+        </div>
+      </div>
+      <div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:0.63rem;font-weight:700;letter-spacing:0.08em;color:var(--accent-pink);margin-bottom:8px;">:9444 EXTERNAL IS</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:0.67rem;color:var(--muted);line-height:2;">
+          <span style="color:var(--text)">SessionDataCache [Hazelcast]</span> — OAuth2Parameters for abf71379… and 95ea0153…<br>
+          <span style="color:var(--text)">AuthnResultCache [Hazelcast]</span> — AuthnResult{admin} keyed by 95ea0153…<br>
+          <span style="color:var(--text)">IDN_OAUTH2_AUTHORIZATION_CODE</span> — code f1cdf2a8… (OIDC code → :9443/commonauth)<br>
+          <span style="color:var(--text)">IDN_AUTH_SESSION_STORE</span> — SHA256(commonAuthId=8310c4c9…) — :9444 SSO session<br>
+          <span style="color:var(--text)">IDN_OIDC_SESSION_STATE</span> — opbs on :9444 · session_state 46e4407b…
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:14px;font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:var(--muted);border-top:1px solid var(--border);padding-top:12px;">
+      <span style="color:var(--accent-teal)">Back-channel call (hidden from browser):</span> In step 11, :9443 OIDCAuthenticator makes a server-to-server POST to :9444/oauth2/token to exchange the OIDC code (f1cdf2a8…) for an id_token. The browser never sees this call — only the resulting redirect.
+    </div>
+  </div>
+
+</div><!-- .page -->
+
+<script>
+function toggle(el) {
+  el.classList.toggle('open');
+}
+// Auto-open key steps
+const steps = document.querySelectorAll('.step');
+// Step 3 (idp.jsp), Step 4 (APIM IS INITIAL_REQUEST), Step 11 (federation callback), Step 12 (APIM IS Hit2), Step 13 (token exchange)
+[2, 3, 10, 11, 12].forEach(i => { if (steps[i]) steps[i].classList.add('open'); });
+</script>
+</body>
+</html>
